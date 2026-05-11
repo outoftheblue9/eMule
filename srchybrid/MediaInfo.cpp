@@ -1584,7 +1584,8 @@ bool GetAttributeIndices(IWMHeaderInfo3 *pIWMHeaderInfo, WORD wStream, LPCWSTR p
 	WORD wIndexCount;
 	HRESULT hr = pIWMHeaderInfo->GetAttributeIndices(wStream, pwszName, &wLangIndex, NULL, &wIndexCount);
 	if (hr != S_OK || wIndexCount == 0) {
-		ASSERT(hr == ASF_E_NOTFOUND);
+		// WMSDK may signal "attribute absent" two ways: ASF_E_NOTFOUND, or S_OK with wIndexCount == 0
+		ASSERT(hr == ASF_E_NOTFOUND || (hr == S_OK && wIndexCount == 0));
 		return false;
 	}
 
