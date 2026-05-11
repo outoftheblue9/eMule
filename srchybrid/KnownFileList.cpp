@@ -414,7 +414,6 @@ void CKnownFileList::CopyKnownFileMap(CKnownFilesMap &Files_Map)
 bool CKnownFileList::ShouldPurgeAICHHashset(const CAICHHash &rAICHHash) const
 {
 	const KnonwFilesByAICHMap::CPair *pair = m_mapKnownFilesByAICH.PLookup(rAICHHash);
-	ASSERT(pair);
 	return !pair || pair->value->ShouldPartiallyPurgeFile();
 }
 
