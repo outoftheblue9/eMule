@@ -555,6 +555,8 @@ void CSearchListCtrl::OnLvnColumnClick(LPNMHDR pNMHDR, LRESULT *pResult)
 	*pResult = 0;
 }
 
+static CSearchFile::EKnownType DetermineKnownType(const CSearchFile *src);
+
 int CALLBACK CSearchListCtrl::SortProc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
 {
 	const CSearchFile *item1 = reinterpret_cast<CSearchFile*>(lParam1);
@@ -665,7 +667,7 @@ int CSearchListCtrl::Compare(const CSearchFile *item1, const CSearchFile *item2,
 	case 12: //path asc
 		return CompareOptLocaleStringNoCaseUndefinedAtBottom(item1->GetDirectory(), item2->GetDirectory(), bSortAscending);
 	case 13:
-		return item1->GetKnownType() - item2->GetKnownType();
+		return DetermineKnownType(item1) - DetermineKnownType(item2);
 	case 14:
 		return CompareAICHHash(item1->GetFileIdentifierC(), item2->GetFileIdentifierC(), bSortAscending);
 	}
@@ -1378,31 +1380,44 @@ void CSearchListCtrl::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 	}
 }
 
-COLORREF CSearchListCtrl::GetSearchItemColor(/*const*/ CSearchFile *src)
+static CSearchFile::EKnownType DetermineKnownType(const CSearchFile *src)
 {
 	const CKnownFile *pFile = theApp.downloadqueue->GetFileByID(src->GetFileHash());
-
 	if (pFile) {
-		if (pFile->IsPartFile()) {
-			src->SetKnownType(CSearchFile::Downloading);
-			if (static_cast<const CPartFile*>(pFile)->GetStatus() == PS_PAUSED)
+		if (pFile->IsPartFile())
+			return CSearchFile::Downloading;
+		return CSearchFile::Shared;
+	}
+	if (theApp.sharedfiles->GetFileByID(src->GetFileHash()))
+		return CSearchFile::Shared;
+	if (theApp.knownfiles->FindKnownFileByID(src->GetFileHash()))
+		return CSearchFile::Downloaded;
+	if (theApp.knownfiles->IsCancelledFileByID(src->GetFileHash()))
+		return CSearchFile::Cancelled;
+	return CSearchFile::NotDetermined;
+}
+
+COLORREF CSearchListCtrl::GetSearchItemColor(/*const*/ CSearchFile *src)
+{
+	CSearchFile::EKnownType eType = DetermineKnownType(src);
+	src->SetKnownType(eType);
+
+	switch (eType) {
+	case CSearchFile::Downloading:
+		{
+			const CKnownFile *pFile = theApp.downloadqueue->GetFileByID(src->GetFileHash());
+			if (pFile && static_cast<const CPartFile*>(pFile)->GetStatus() == PS_PAUSED)
 				return m_crSearchResultDownloadStopped;
 			return m_crSearchResultDownloading;
 		}
-		src->SetKnownType(CSearchFile::Shared);
+	case CSearchFile::Shared:
 		return m_crSearchResultSharing;
-	}
-	if (theApp.sharedfiles->GetFileByID(src->GetFileHash())) {
-		src->SetKnownType(CSearchFile::Shared);
-		return m_crSearchResultSharing;
-	}
-	if (theApp.knownfiles->FindKnownFileByID(src->GetFileHash())) {
-		src->SetKnownType(CSearchFile::Downloaded);
+	case CSearchFile::Downloaded:
 		return m_crSearchResultKnown;
-	}
-	if (theApp.knownfiles->IsCancelledFileByID(src->GetFileHash())) {
-		src->SetKnownType(CSearchFile::Cancelled);
+	case CSearchFile::Cancelled:
 		return m_crSearchResultCancelled;
+	default:
+		break;
 	}
 
 	// Spam check
