@@ -466,6 +466,8 @@ bool CFileIdentifierSA::ReadIdentifier(CFileDataIO &file, bool bKadValidWithoutM
 		file.ReadHash16(m_abyMD4Hash);
 	if (bSize)
 		m_nFileSize = file.ReadUInt64();
+	else
+		m_nFileSize = (uint64)0;
 	if (bAICH) {
 		m_AICHFileHash.Read(file);
 		m_bHasValidAICHHash = true;
