@@ -461,6 +461,7 @@ public:
 	static bool		m_btransferfullchunks;
 	static int		m_istartnextfile;
 	static bool		m_bshowoverhead;
+	static bool		m_bHighlightSearchTerms;
 	static bool		m_bDAP;
 	static bool		m_bUAP;
 	static bool		m_bDisableKnownClientList;
@@ -1083,6 +1084,8 @@ public:
 	static void		SetTransferFullChunks( bool m_bintransferfullchunks ) { m_btransferfullchunks = m_bintransferfullchunks; }
 	static int		StartNextFile()						{ return m_istartnextfile; }
 	static bool		ShowOverhead()						{ return m_bshowoverhead; }
+	static bool		GetHighlightSearchTerms()			{ return m_bHighlightSearchTerms; }
+	static void		SetHighlightSearchTerms(bool b)		{ m_bHighlightSearchTerms = b; }
 	static void		SetNewAutoUp(bool m_bInUAP)			{ m_bUAP = m_bInUAP; }
 	static bool		GetNewAutoUp()						{ return m_bUAP; }
 	static void		SetNewAutoDown(bool m_bInDAP)		{ m_bDAP = m_bInDAP; }

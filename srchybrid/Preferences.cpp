@@ -315,6 +315,7 @@ bool	CPreferences::m_bManualAddedServersHighPriority;
 bool	CPreferences::m_btransferfullchunks;
 int		CPreferences::m_istartnextfile;
 bool	CPreferences::m_bshowoverhead;
+bool	CPreferences::m_bHighlightSearchTerms;
 bool	CPreferences::m_bDAP;
 bool	CPreferences::m_bUAP;
 bool	CPreferences::m_bDisableKnownClientList;
@@ -1660,6 +1661,7 @@ void CPreferences::SavePreferences()
 	ini.WriteBool(_T("ManualHighPrio"), m_bManualAddedServersHighPriority);
 	ini.WriteBool(_T("FullChunkTransfers"), m_btransferfullchunks);
 	ini.WriteBool(_T("ShowOverhead"), m_bshowoverhead);
+	ini.WriteBool(_T("HighlightSearchTerms"), m_bHighlightSearchTerms);
 	ini.WriteBool(_T("VideoPreviewBackupped"), m_bMoviePreviewBackup);
 	ini.WriteInt(_T("StartNextFile"), m_istartnextfile);
 
@@ -2147,6 +2149,7 @@ void CPreferences::LoadPreferences()
 	m_btransferfullchunks = ini.GetBool(_T("FullChunkTransfers"), true);
 	m_istartnextfile = ini.GetInt(_T("StartNextFile"), 0);
 	m_bshowoverhead = ini.GetBool(_T("ShowOverhead"), false);
+	m_bHighlightSearchTerms = ini.GetBool(_T("HighlightSearchTerms"), true);
 	m_bMoviePreviewBackup = ini.GetBool(_T("VideoPreviewBackupped"), true);
 	m_iPreviewSmallBlocks = ini.GetInt(_T("PreviewSmallBlocks"), 0);
 	m_bPreviewCopiedArchives = ini.GetBool(_T("PreviewCopiedArchives"), true);

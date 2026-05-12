@@ -87,6 +87,7 @@ BEGIN_MESSAGE_MAP(CSearchResultsWnd, CResizableFormView)
 	ON_WM_TIMER()
 	ON_BN_CLICKED(IDC_SDOWNLOAD, OnBnClickedDownloadSelected)
 	ON_BN_CLICKED(IDC_CLEARALL, OnBnClickedClearAll)
+	ON_BN_CLICKED(IDC_SEARCH_HIGHLIGHT, OnBnClickedHighlightSearchTerms)
 	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB1, OnSelChangeTab)
 	ON_NOTIFY(TCN_SELCHANGING, IDC_TAB1, OnSelChangingTab)
 	ON_MESSAGE(UM_CLOSETAB, OnCloseTab)
@@ -150,6 +151,13 @@ void CSearchResultsWnd::OnInitialUpdate()
 	m_btnSearchListMenu.SetExtendedStyle(m_btnSearchListMenu.GetExtendedStyle() & ~TBSTYLE_EX_MIXEDBUTTONS);
 	m_btnSearchListMenu.RecalcLayout(true);
 
+	if (CWnd *pHL = GetDlgItem(IDC_SEARCH_HIGHLIGHT)) {
+		const int iHLLeft = SEARCH_LIST_MENU_BUTTON_XOFF + SEARCH_LIST_MENU_BUTTON_WIDTH + 8;
+		const RECT rcHL{iHLLeft, SEARCH_LIST_MENU_BUTTON_YOFF,
+			iHLLeft + 90, SEARCH_LIST_MENU_BUTTON_YOFF + SEARCH_LIST_MENU_BUTTON_HEIGHT};
+		pHL->MoveWindow(&rcHL);
+	}
+
 	m_ctlFilter.OnInit(&m_ctlSearchListHeader);
 
 	SetAllIcons();
@@ -160,6 +168,8 @@ void CSearchResultsWnd::OnInitialUpdate()
 	ShowSearchSelector(false); //set anchors for IDC_SEARCHLIST
 
 	AddAnchor(m_btnSearchListMenu, TOP_LEFT);
+	AddAnchor(IDC_SEARCH_HIGHLIGHT, TOP_LEFT);
+	CheckDlgButton(IDC_SEARCH_HIGHLIGHT, thePrefs.GetHighlightSearchTerms() ? BST_CHECKED : BST_UNCHECKED);
 	AddAnchor(IDC_FILTER, TOP_RIGHT);
 	AddAnchor(IDC_SDOWNLOAD, BOTTOM_LEFT);
 	AddAnchor(IDC_PROGRESS1, BOTTOM_LEFT, BOTTOM_RIGHT);
@@ -576,11 +586,19 @@ void CSearchResultsWnd::Localize()
 	m_btnSearchListMenu.SetWindowText(GetResString(IDS_SW_RESULT));
 	SetDlgItemText(IDC_SDOWNLOAD, GetResString(IDS_SW_DOWNLOAD));
 	m_ctlOpenParamsWnd.SetWindowText(GetResString(IDS_SEARCHPARAMS) + _T("..."));
+	SetDlgItemText(IDC_SEARCH_HIGHLIGHT, GetResString(IDS_SEARCH_HIGHLIGHT));
 }
 
 void CSearchResultsWnd::OnBnClickedClearAll()
 {
 	DeleteAllSearches();
+}
+
+void CSearchResultsWnd::OnBnClickedHighlightSearchTerms()
+{
+	thePrefs.SetHighlightSearchTerms(IsDlgButtonChecked(IDC_SEARCH_HIGHLIGHT) == BST_CHECKED);
+	if (searchlistctrl.GetSafeHwnd())
+		searchlistctrl.Invalidate();
 }
 
 CString DbgGetFileMetaTagName(UINT uMetaTagID)
@@ -1373,6 +1391,7 @@ bool CSearchResultsWnd::CreateNewTab(SSearchParams *pParams, bool bActiveIcon)
 	LRESULT lResult;
 	OnSelChangingTab(NULL, &lResult);
 	searchselect.SetCurSel(itemnr);
+	searchlistctrl.SetHighlightExpression(pParams->strExpression);
 	searchlistctrl.ShowResults(pParams->dwSearchID);
 	return true;
 }
@@ -1493,6 +1512,7 @@ void CSearchResultsWnd::ShowResults(const SSearchParams *pParams)
 	else if (pParams->eType == SearchTypeKademlia)
 		m_pwndParams->m_ctlCancel.EnableWindow(Kademlia::CSearchManager::IsSearching(pParams->dwSearchID));
 
+	searchlistctrl.SetHighlightExpression(pParams->strExpression);
 	searchlistctrl.ShowResults(pParams->dwSearchID);
 }
 

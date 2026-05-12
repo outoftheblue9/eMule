@@ -65,7 +65,8 @@ public:
 	void	Localize();
 	void	ShowResults(uint32 nResultsID);
 	void	ClearResultViewState(uint32 nResultsID);
-	void	NoTabs()								{ m_nResultsID = 0; }
+	void	NoTabs()								{ m_nResultsID = 0; m_astrHighlightTokens.RemoveAll(); }
+	void	SetHighlightExpression(LPCTSTR pszExpression);
 	void	UpdateSearch(CSearchFile *toupdate);
 	void	UpdateTabHeader(uint32 nResultsID);
 	EFileSizeFormat GetFileSizeFormat() const		{ return m_eFileSizeFormat; }
@@ -87,6 +88,10 @@ protected:
 
 	typedef CMap<int, int, CSortSelectionState*, CSortSelectionState*> CSortSelectionStatesMap;
 	CSortSelectionStatesMap m_mapSortSelectionStates;
+
+	CArray<CString, LPCTSTR> m_astrHighlightTokens;
+
+	void	DrawHighlightedText(CDC &dc, const CString &sText, LPRECT lpRect, UINT uFormat);
 
 	COLORREF GetSearchItemColor(/*const*/ CSearchFile *src);
 	bool	IsComplete(const CSearchFile *pFile, UINT uSources) const;

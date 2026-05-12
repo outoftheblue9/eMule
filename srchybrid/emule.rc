@@ -132,6 +132,7 @@ BEGIN
     CONTROL         "",IDC_CATTAB2,"SysTabControl32",TCS_BUTTONS | TCS_RAGGEDRIGHT | TCS_TOOLTIPS | WS_TABSTOP,114,121,55,14
     PUSHBUTTON      "C&lose All Search Results",IDC_CLEARALL,172,120,108,14
     CONTROL         "SearchListToolbar",IDC_SEARCHLST_ICO,"ToolbarWindow32",WS_TABSTOP | 0x994e,5,5,74,12
+    CONTROL         "Highlight",IDC_SEARCH_HIGHLIGHT,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,120,5,60,12
 END
 
 IDD_CHAT DIALOGEX 0, 35, 511, 289
@@ -2519,6 +2520,7 @@ BEGIN
     IDS_REMOVESEARCHSTRING  "Close Search Results"
     IDS_REMOVESELECTED      "Remove"
     IDS_REMOVEALLSEARCH     "Close All Search Results"
+    IDS_SEARCH_HIGHLIGHT    "Highlight"
     IDS_ENTERQUEUE          "Entered Queue"
     IDS_SF_FAIL             "Failed Servers"
     IDS_SF_WUSER            "Users on Working Servers"

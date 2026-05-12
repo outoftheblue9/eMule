@@ -1441,6 +1441,8 @@ void CSearchListCtrl::DrawSourceChild(CDC &dc, int nColumn, LPRECT lpRect, UINT 
 		{
 			lpRect->left += 16;
 		}
+		DrawHighlightedText(dc, sItem, lpRect, MLC_DT_TEXT | uDrawTextAlignment);
+		break;
 	default:
 		dc.DrawText(sItem, lpRect, MLC_DT_TEXT | uDrawTextAlignment);
 	case 4: // file type
@@ -1460,6 +1462,8 @@ void CSearchListCtrl::DrawSourceParent(CDC &dc, int nColumn, LPRECT lpRect, UINT
 		{
 			lpRect->left += 16;
 		}
+		DrawHighlightedText(dc, sItem, lpRect, MLC_DT_TEXT | uDrawTextAlignment);
+		break;
 	default:
 		dc.DrawText(sItem, lpRect, MLC_DT_TEXT | uDrawTextAlignment);
 		break;
@@ -1522,6 +1526,138 @@ void CSearchListCtrl::OnSysColorChange()
 {
 	CMuleListCtrl::OnSysColorChange();
 	SetHighlightColors();
+}
+
+void CSearchListCtrl::SetHighlightExpression(LPCTSTR pszExpression)
+{
+	m_astrHighlightTokens.RemoveAll();
+	if (pszExpression == NULL || *pszExpression == _T('\0')) {
+		if (::IsWindow(m_hWnd))
+			Invalidate();
+		return;
+	}
+
+	CString sExpr(pszExpression);
+	const int iLen = sExpr.GetLength();
+	int iPos = 0;
+	while (iPos < iLen) {
+		TCHAR c = sExpr[iPos];
+		if (_istspace(c) || c == _T('(') || c == _T(')') || c == _T('|') || c == _T('!')) {
+			++iPos;
+			continue;
+		}
+		CString sTok;
+		if (c == _T('"')) {
+			int iEnd = sExpr.Find(_T('"'), iPos + 1);
+			if (iEnd < 0) {
+				sTok = sExpr.Mid(iPos + 1);
+				iPos = iLen;
+			} else {
+				sTok = sExpr.Mid(iPos + 1, iEnd - iPos - 1);
+				iPos = iEnd + 1;
+			}
+		} else {
+			int iEnd = iPos;
+			while (iEnd < iLen) {
+				TCHAR ce = sExpr[iEnd];
+				if (_istspace(ce) || ce == _T('(') || ce == _T(')'))
+					break;
+				++iEnd;
+			}
+			sTok = sExpr.Mid(iPos, iEnd - iPos);
+			iPos = iEnd;
+		}
+		sTok.Trim();
+		if (sTok.IsEmpty())
+			continue;
+		if (sTok.CompareNoCase(_T("AND")) == 0 || sTok.CompareNoCase(_T("OR")) == 0 || sTok.CompareNoCase(_T("NOT")) == 0)
+			continue;
+		if (sTok[0] == _T('-'))
+			continue;
+		m_astrHighlightTokens.Add(sTok);
+	}
+	if (::IsWindow(m_hWnd))
+		Invalidate();
+}
+
+void CSearchListCtrl::DrawHighlightedText(CDC &dc, const CString &sText, LPRECT lpRect, UINT uFormat)
+{
+	const int iTextLen = sText.GetLength();
+	if (!thePrefs.GetHighlightSearchTerms() || m_astrHighlightTokens.GetCount() == 0 || iTextLen == 0) {
+		dc.DrawText(sText, lpRect, uFormat);
+		return;
+	}
+
+	CString sLower(sText);
+	sLower.MakeLower();
+
+	BYTE *pMatched = static_cast<BYTE*>(_alloca(iTextLen));
+	memset(pMatched, 0, iTextLen);
+
+	bool bAnyMatch = false;
+	for (INT_PTR t = 0; t < m_astrHighlightTokens.GetCount(); ++t) {
+		CString sTok(m_astrHighlightTokens[t]);
+		sTok.MakeLower();
+		const int iTokLen = sTok.GetLength();
+		if (iTokLen == 0)
+			continue;
+		int iSearchFrom = 0;
+		for (;;) {
+			int iFound = sLower.Find(sTok, iSearchFrom);
+			if (iFound < 0)
+				break;
+			for (int j = 0; j < iTokLen; ++j)
+				pMatched[iFound + j] = 1;
+			bAnyMatch = true;
+			iSearchFrom = iFound + iTokLen;
+		}
+	}
+
+	if (!bAnyMatch) {
+		dc.DrawText(sText, lpRect, uFormat);
+		return;
+	}
+
+	const int iTotalW = dc.GetTextExtent(sText).cx;
+	const int iAvail = lpRect->right - lpRect->left;
+	if (iTotalW > iAvail) {
+		// not enough room for full text; fall back to ellipsis draw without highlight
+		dc.DrawText(sText, lpRect, uFormat);
+		return;
+	}
+
+	const COLORREF crOldText = dc.GetTextColor();
+	const int iOldBkMode = dc.GetBkMode();
+	const COLORREF crOldBk = dc.GetBkColor();
+	TEXTMETRIC tm;
+	dc.GetTextMetrics(&tm);
+	const int y = lpRect->top + ((lpRect->bottom - lpRect->top) - tm.tmHeight) / 2;
+	int x = lpRect->left;
+	int iSegStart = 0;
+	while (iSegStart < iTextLen) {
+		const BYTE bMatch = pMatched[iSegStart];
+		int iSegEnd = iSegStart + 1;
+		while (iSegEnd < iTextLen && pMatched[iSegEnd] == bMatch)
+			++iSegEnd;
+		const CString sSeg(sText.Mid(iSegStart, iSegEnd - iSegStart));
+		const int w = dc.GetTextExtent(sSeg).cx;
+		RECT rcSeg{ x, lpRect->top, x + w, lpRect->bottom };
+		if (bMatch) {
+			dc.SetBkMode(OPAQUE);
+			dc.SetBkColor(RGB(255, 255, 0));
+			dc.SetTextColor(RGB(0, 0, 0));
+			dc.ExtTextOut(x, y, ETO_OPAQUE | ETO_CLIPPED, &rcSeg, sSeg, NULL);
+		} else {
+			dc.SetBkMode(TRANSPARENT);
+			dc.SetTextColor(crOldText);
+			dc.ExtTextOut(x, y, ETO_CLIPPED, &rcSeg, sSeg, NULL);
+		}
+		x += w;
+		iSegStart = iSegEnd;
+	}
+	dc.SetBkMode(iOldBkMode);
+	dc.SetBkColor(crOldBk);
+	dc.SetTextColor(crOldText);
 }
 
 void CSearchListCtrl::OnLvnKeyDown(LPNMHDR pNMHDR, LRESULT *pResult)

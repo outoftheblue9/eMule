@@ -156,6 +156,7 @@ protected:
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
 	afx_msg void OnBnClickedDownloadSelected();
 	afx_msg void OnBnClickedClearAll();
+	afx_msg void OnBnClickedHighlightSearchTerms();
 	afx_msg void OnClose();
 	afx_msg BOOL OnHelpInfo(HELPINFO*);
 	afx_msg LRESULT OnIdleUpdateCmdUI(WPARAM, LPARAM);
