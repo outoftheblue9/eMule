@@ -519,34 +519,46 @@ void CSearchResultsWnd::DownloadSelected()
 void CSearchResultsWnd::DownloadSelected(bool bPaused)
 {
 	CWaitCursor curWait;
+
+	// Snapshot the current selection before processing. UpdateSources() below can
+	// call InsertItem() on the listctrl (for not-yet-listed children of an expanded
+	// parent), which shifts indices and corrupts the live MFC POSITION cursor,
+	// causing some selected items to be skipped.
+	CTypedPtrList<CPtrList, CSearchFile*> selectedList;
 	for (POSITION pos = searchlistctrl.GetFirstSelectedItemPosition(); pos != NULL;) {
 		int iIndex = searchlistctrl.GetNextSelectedItem(pos);
 		if (iIndex >= 0) {
-			// get selected listview item (may be a child item from an expanded search result)
-			const CSearchFile *sel_file = reinterpret_cast<CSearchFile*>(searchlistctrl.GetItemData(iIndex));
-
-			// get parent
-			const CSearchFile *parent = sel_file->GetListParent();
-			if (parent == NULL)
-				parent = sel_file;
-
-			if (parent->IsComplete() == 0 && parent->GetSourceCount() >= 50) {
-				CString strMsg;
-				strMsg.Format(GetResString(IDS_ASKDLINCOMPLETE), (LPCTSTR)sel_file->GetFileName());
-				if (AfxMessageBox(strMsg, MB_ICONQUESTION | MB_YESNO | MB_DEFBUTTON2) != IDYES)
-					continue;
-			}
-
-			// create new DL queue entry with all properties of parent (e.g. already received sources!)
-			// but with the filename of the selected listview item.
-			CSearchFile tempFile(parent);
-			tempFile.SetAFileName(sel_file->GetFileName());
-			tempFile.SetStrTagValue(FT_FILENAME, sel_file->GetFileName());
-			theApp.downloadqueue->AddSearchToDownload(&tempFile, bPaused, GetSelectedCat());
-
-			// update parent and all children
-			searchlistctrl.UpdateSources(parent);
+			CSearchFile *sel_file = reinterpret_cast<CSearchFile*>(searchlistctrl.GetItemData(iIndex));
+			if (sel_file != NULL)
+				selectedList.AddTail(sel_file);
 		}
+	}
+
+	for (POSITION pos = selectedList.GetHeadPosition(); pos != NULL;) {
+		// selected listview item (may be a child item from an expanded search result)
+		const CSearchFile *sel_file = selectedList.GetNext(pos);
+
+		// get parent
+		const CSearchFile *parent = sel_file->GetListParent();
+		if (parent == NULL)
+			parent = sel_file;
+
+		if (parent->IsComplete() == 0 && parent->GetSourceCount() >= 50) {
+			CString strMsg;
+			strMsg.Format(GetResString(IDS_ASKDLINCOMPLETE), (LPCTSTR)sel_file->GetFileName());
+			if (AfxMessageBox(strMsg, MB_ICONQUESTION | MB_YESNO | MB_DEFBUTTON2) != IDYES)
+				continue;
+		}
+
+		// create new DL queue entry with all properties of parent (e.g. already received sources!)
+		// but with the filename of the selected listview item.
+		CSearchFile tempFile(parent);
+		tempFile.SetAFileName(sel_file->GetFileName());
+		tempFile.SetStrTagValue(FT_FILENAME, sel_file->GetFileName());
+		theApp.downloadqueue->AddSearchToDownload(&tempFile, bPaused, GetSelectedCat());
+
+		// update parent and all children
+		searchlistctrl.UpdateSources(parent);
 	}
 }
 
