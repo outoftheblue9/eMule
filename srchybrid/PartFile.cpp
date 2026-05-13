@@ -53,6 +53,7 @@
 #include "CollectionViewDialog.h"
 #include "uploaddiskiothread.h"
 #include "PartFileWriteThread.h"
+#include "PartFileWriteCoalesce.h"
 #ifndef XP_BUILD
 #include <urlmon.h>
 #endif
@@ -4102,31 +4103,77 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 		if (newsize)
 			m_hpartfile.SetLength(newsize); // may throw 'diskFull'
 
-		//pass data to the writing thread
+		//pass data to the writing thread - coalesce contiguous PB_READY fragments
+		//into single overlapped writes so each pulse hits the disk with one
+		//large I/O instead of N tiny ones (per offset adjacency, not list position)
 		CPartFileWriteThread *pThread = theApp.m_pPartFileWriteThread;
 		if (pThread && pThread->IsRunning()) {
-			bool bLocked = false;
-			for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
-				PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
-				if (item->flushed == PB_READY) {
-					if (!bLocked) {
-						bLocked = true;
-						pThread->m_lockFlushList.Lock();
-						if (uAllocate == 1) //an extra byte to allocate
-							pThread->m_FlushList.AddHead(ToWrite{ this, new PartFileBufferedData{(uint64)m_nFileSize, (uint64)m_nFileSize} });
+			// Collect PB_READY items, holding back the allocation-tail item (uAllocate==2)
+			// which must be queued AT HEAD as a standalone write to extend the file first.
+			std::vector<PartFileBufferedData*> ready;
+			ready.reserve(m_BufferedData_list.GetCount());
+			PartFileBufferedData *pAllocTail = NULL;
+			{
+				POSITION posTail = m_BufferedData_list.GetTailPosition();
+				PartFileBufferedData *pTailItem = (uAllocate == 2 && posTail) ? m_BufferedData_list.GetAt(posTail) : NULL;
+				for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
+					PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
+					if (item->flushed == PB_READY) {
+						if (item == pTailItem)
+							pAllocTail = item; // queued separately at head
+						else
+							ready.push_back(item);
 					}
-					if (uAllocate == 2 && pos == NULL) //using the last item for allocation
-						pThread->m_FlushList.AddHead(ToWrite{this, item});
-					else
-						pThread->m_FlushList.AddTail(ToWrite{this, item});
-					item->dwError = 0; //reset error (this could be a retry)
-					item->flushed = PB_PENDING;
 				}
 			}
-			if (bLocked)
+
+			if (!ready.empty() || pAllocTail) {
+				// Build runs of contiguous fragments over the ready set
+				std::vector<MergeFragment> frags;
+				frags.reserve(ready.size());
+				for (PartFileBufferedData *p : ready)
+					frags.push_back(MergeFragment{p->start, p->end, p->data});
+				std::vector<MergedRun> runs;
+				CoalesceContiguous(frags, runs);
+
+				pThread->m_lockFlushList.Lock();
+				if (uAllocate == 1) //an extra byte to allocate
+					pThread->m_FlushList.AddHead(ToWrite{this, new PartFileBufferedData{(uint64)m_nFileSize, (uint64)m_nFileSize}, NULL});
+				if (pAllocTail) {
+					pThread->m_FlushList.AddHead(ToWrite{this, pAllocTail, NULL});
+					pAllocTail->dwError = 0;
+					pAllocTail->flushed = PB_PENDING;
+				}
+
+				for (const MergedRun &run : runs) {
+					if (run.count == 1) {
+						PartFileBufferedData *item = ready[run.firstIdx];
+						pThread->m_FlushList.AddTail(ToWrite{this, item, NULL});
+						item->dwError = 0;
+						item->flushed = PB_PENDING;
+					} else {
+						const uint64 uMergeStart = ready[run.firstIdx]->start;
+						const uint64 uMergeEnd = ready[run.firstIdx + run.count - 1]->end;
+						const size_t uLen = static_cast<size_t>(uMergeEnd - uMergeStart + 1);
+						BYTE *pData = new BYTE[uLen];
+						MergedWrite *pMerge = new MergedWrite{pData, uMergeStart, uMergeEnd, {}};
+						pMerge->sources.reserve(run.count);
+						for (size_t k = 0; k < run.count; ++k) {
+							PartFileBufferedData *item = ready[run.firstIdx + k];
+							const size_t uItemLen = static_cast<size_t>(item->end - item->start + 1);
+							const size_t uOffset = static_cast<size_t>(item->start - uMergeStart);
+							memcpy(pData + uOffset, item->data, uItemLen);
+							pMerge->sources.push_back(item);
+							item->dwError = 0;
+							item->flushed = PB_PENDING;
+						}
+						pThread->m_FlushList.AddTail(ToWrite{this, NULL, pMerge});
+					}
+				}
 				pThread->m_lockFlushList.Unlock();
-			if (!pThread->m_FlushList.IsEmpty()) //let it sleep if nothing to do
-				pThread->WakeUpCall();
+				if (!pThread->m_FlushList.IsEmpty()) //let it sleep if nothing to do
+					pThread->WakeUpCall();
+			}
 		}
 
 		//process data from the writing thread

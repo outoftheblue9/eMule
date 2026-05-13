@@ -306,6 +306,9 @@
     <ClCompile Include="PartFile.cpp" />
     <ClCompile Include="PartFileConvert.cpp" />
     <ClCompile Include="PartFileWriteThread.cpp" />
+    <ClCompile Include="PartFileWriteCoalesce.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="PerfLog.cpp" />
     <ClCompile Include="Pinger.cpp" />
     <ClCompile Include="PPgConnection.cpp" />
@@ -598,6 +601,7 @@
     <ClInclude Include="PartFile.h" />
     <ClInclude Include="PartFileConvert.h" />
     <ClInclude Include="PartFileWriteThread.h" />
+    <ClInclude Include="PartFileWriteCoalesce.h" />
     <ClInclude Include="PerfLog.h" />
     <ClInclude Include="Pinger.h" />
     <ClInclude Include="PPgConnection.h" />

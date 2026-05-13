@@ -108,6 +108,25 @@ UINT CPartFileWriteThread::RunInternal()
 	while (!m_listPendingIO.IsEmpty())
 		WriteCompletionRoutine(0, m_listPendingIO.RemoveHead());
 
+	//drain any items that never made it to WriteFile (m_listToWrite + m_FlushList)
+	//so MergedWrite buffers and allocation-marker PartFileBufferedData are freed
+	auto drainQueued = [](CList<ToWrite> &list) {
+		while (!list.IsEmpty()) {
+			ToWrite item = list.RemoveHead();
+			if (item.pMerge) {
+				delete[] item.pMerge->data;
+				delete item.pMerge;
+			} else if (item.pBuffer && !item.pBuffer->data) {
+				//allocation marker — owned by the queue, not by CPartFile::m_BufferedData_list
+				delete item.pBuffer;
+			}
+		}
+	};
+	drainQueued(m_listToWrite);
+	m_lockFlushList.Lock();
+	drainQueued(m_FlushList);
+	m_lockFlushList.Unlock();
+
 	::CloseHandle(m_hPort);
 	m_hPort = 0;
 
@@ -119,9 +138,14 @@ void CPartFileWriteThread::WriteBuffers()
 {
 	//process internal list
 	while (!m_listToWrite.IsEmpty() && m_Run) {
-		const ToWrite &item = m_listToWrite.RemoveHead();
+		const ToWrite item = m_listToWrite.RemoveHead();
+		ASSERT(!(item.pBuffer && item.pMerge)); //mutually exclusive
 		PartFileBufferedData *pBuffer = item.pBuffer;
-		ASSERT(pBuffer->end >= pBuffer->start && (pBuffer->data || pBuffer->end == pBuffer->start)); //verifies allocation requests too
+		MergedWrite *pMerge = item.pMerge;
+		const uint64 uStart = pMerge ? pMerge->start : pBuffer->start;
+		const uint64 uEnd = pMerge ? pMerge->end : pBuffer->end;
+		const BYTE *pData = pMerge ? pMerge->data : pBuffer->data;
+		ASSERT(uEnd >= uStart && (pData || uEnd == uStart)); //verifies allocation requests too
 
 		CPartFile *pFile = item.pFile;
 		if (AddFile(pFile)) {
@@ -129,21 +153,28 @@ void CPartFileWriteThread::WriteBuffers()
 			OverlappedWrite_Struct *pOvWrite = new OverlappedWrite_Struct;
 			pOvWrite->oOverlap.Internal = 0;
 			pOvWrite->oOverlap.InternalHigh = 0;
-			//pOvWrite->oOverlap.Offset = LODWORD(currentblock->StartOffset);
-			//pOvWrite->oOverlap.OffsetHigh = HIDWORD(currentblock->StartOffset);
-			*(uint64*)&pOvWrite->oOverlap.Offset = pBuffer->start;
+			*(uint64*)&pOvWrite->oOverlap.Offset = uStart;
 			pOvWrite->oOverlap.hEvent = 0;
 			pOvWrite->pFile = pFile;
 			pOvWrite->pBuffer = pBuffer;
+			pOvWrite->pMerge = pMerge;
 
 			static const BYTE zero = 0;
-			if (!::WriteFile(pFile->m_hWrite, pBuffer->data ? pBuffer->data : &zero, (DWORD)(pBuffer->end - pBuffer->start + 1), NULL, (LPOVERLAPPED)pOvWrite)) {
+			if (!::WriteFile(pFile->m_hWrite, pData ? pData : &zero, (DWORD)(uEnd - uStart + 1), NULL, (LPOVERLAPPED)pOvWrite)) {
 				DWORD dwError = ::GetLastError();
 				if (dwError != ERROR_IO_PENDING) {
 					delete pOvWrite;
-					if (item.pBuffer->data) { //check for an allocation request
-						item.pBuffer->dwError = dwError;
-						item.pBuffer->flushed = PB_ERROR;
+					if (pMerge) {
+						for (PartFileBufferedData *src : pMerge->sources) {
+							src->dwError = dwError;
+							src->flushed = PB_ERROR;
+						}
+						theApp.QueueDebugLogLineEx(LOG_WARNING, _T("WriteBuffers error (merged x%Iu): %lu"), pMerge->sources.size(), dwError);
+						delete[] pMerge->data;
+						delete pMerge;
+					} else if (pBuffer->data) { //check for an allocation request
+						pBuffer->dwError = dwError;
+						pBuffer->flushed = PB_ERROR;
 						theApp.QueueDebugLogLineEx(LOG_WARNING, _T("WriteBuffers error: %lu"), dwError);
 					}
 					RemFile(pFile);
@@ -152,8 +183,13 @@ void CPartFileWriteThread::WriteBuffers()
 			}
 			pOvWrite->pos = m_listPendingIO.AddTail(pOvWrite);
 			++pFile->m_iWrites;
-		} else
+		} else {
 			theApp.QueueDebugLogLineEx(LOG_ERROR, _T("WriteBuffers error: CPartFile cannot be written"));
+			if (pMerge) {
+				delete[] pMerge->data;
+				delete pMerge;
+			}
+		}
 	}
 }
 
@@ -166,14 +202,23 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 	CPartFile *pFile = pOvWrite->pFile;
 	if (m_Run) {
 		PartFileBufferedData *pBuffer = pOvWrite->pBuffer;
-		const DWORD dwWrite = (DWORD)(pBuffer->end - pBuffer->start + 1);
+		MergedWrite *pMerge = pOvWrite->pMerge;
+		const uint64 uStart = pMerge ? pMerge->start : pBuffer->start;
+		const uint64 uEnd = pMerge ? pMerge->end : pBuffer->end;
+		const DWORD dwWrite = (DWORD)(uEnd - uStart + 1);
 
 		ASSERT(pOvWrite->pos);
 		m_listPendingIO.RemoveAt(pOvWrite->pos);
 		if (dwBytesWritten && dwWrite == dwBytesWritten) {
 			if (pFile) {
 				--pFile->m_iWrites;
-				if (pBuffer->data) { //write data
+				if (pMerge) { //fan completion across all source items
+					ASSERT(pFile->m_iWrites >= 0);
+					for (PartFileBufferedData *src : pMerge->sources) {
+						ASSERT(src->flushed == PB_PENDING);
+						src->flushed = PB_WRITTEN;
+					}
+				} else if (pBuffer->data) { //write data
 					ASSERT(pBuffer->flushed = PB_PENDING && pFile->m_iWrites >= 0);
 					pBuffer->flushed = PB_WRITTEN;
 				} else { //full file allocation
@@ -184,11 +229,30 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 				}
 			}
 		} else {
-			pBuffer->flushed = PB_ERROR; //error code is unknown
+			if (pMerge) {
+				for (PartFileBufferedData *src : pMerge->sources)
+					src->flushed = PB_ERROR;
+			} else {
+				pBuffer->flushed = PB_ERROR; //error code is unknown
+			}
 			Debug(_T("  Completed write size: expected %lu, written %lu\n"), dwWrite, dwBytesWritten);
 		}
-	} else if (pFile)
-		RemFile(pFile);
+
+		if (pMerge) {
+			delete[] pMerge->data;
+			delete pMerge;
+		}
+	} else {
+		//shutdown: free MergedWrite buffer and allocation-marker PartFileBufferedData
+		if (pOvWrite->pMerge) {
+			delete[] pOvWrite->pMerge->data;
+			delete pOvWrite->pMerge;
+		} else if (pOvWrite->pBuffer && !pOvWrite->pBuffer->data) {
+			delete pOvWrite->pBuffer;
+		}
+		if (pFile)
+			RemFile(pFile);
+	}
 
 	delete pOvWrite;
 }

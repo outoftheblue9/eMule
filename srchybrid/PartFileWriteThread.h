@@ -16,20 +16,37 @@
 //Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #pragma once
 
+#include <vector>
+
 struct PartFileBufferedData;
+
+// A merged write coalesces multiple contiguous PartFileBufferedData fragments
+// into a single overlapped WriteFile. The merge owns its own data buffer
+// (memcpy'd from the sources) so the original fragments stay intact in
+// CPartFile::m_BufferedData_list for gap accounting and cleanup. On
+// completion, each source item is marked PB_WRITTEN (or PB_ERROR).
+struct MergedWrite
+{
+	BYTE *data;                                 // owned, allocated with new[]
+	uint64 start;
+	uint64 end;                                 // inclusive
+	std::vector<PartFileBufferedData*> sources; // items to mark on completion
+};
 
 struct ToWrite
 {
 	CPartFile *pFile;
-	PartFileBufferedData *pBuffer;
+	PartFileBufferedData *pBuffer; // legacy single-fragment / allocation-marker path
+	MergedWrite *pMerge;           // multi-fragment merged path (mutually exclusive with pBuffer)
 };
 
 struct OverlappedWrite_Struct
 {
 	OVERLAPPED				oOverlap; // must be the first member
 	CPartFile				*pFile;
-	PartFileBufferedData	*pBuffer;
-	POSITION				pos; // in m_listPendingIO
+	PartFileBufferedData	*pBuffer; // single-fragment path
+	MergedWrite				*pMerge;  // merged path
+	POSITION				pos;      // in m_listPendingIO
 };
 
 class CPartFileWriteThread : public CWinThread
