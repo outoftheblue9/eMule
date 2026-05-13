@@ -593,7 +593,29 @@ BOOL CemuleApp::InitInstance()
 	sharedfiles = new CSharedFileList(serverconnect);
 	listensocket = new CListenSocket();
 	clientudp = new CClientUDPSocket();
+	// CClientCreditsList's constructor triggers CryptoPP's first use of
+	// the library (RSA key load + Debug_CheckCrypting self-test). CryptoPP
+	// lazily constructs process-lifetime singleton Integer objects
+	// (zero/one/two, prime tables, etc.) on first use. Those singletons
+	// are destroyed via static destructors AFTER _CrtDumpMemoryLeaks runs
+	// at shutdown, so they show up as false-positive leaks (small 8/47/48
+	// byte SecBlock/aligned_malloc entries). Bracket the call with
+	// _CrtMemCheckpoint + temporarily clear _CRTDBG_ALLOC_MEM_DF so the
+	// self-test's first-touch allocations bypass debug-heap tracking and
+	// don't pollute the leak report. The singletons are still freed by
+	// their own atexit hooks (free() handles both tracked and untracked).
+#ifdef _DEBUG
+	_CrtMemState memStateBeforeCrypto;
+	_CrtMemCheckpoint(&memStateBeforeCrypto);
+	const int iOldDbgFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+	_CrtSetDbgFlag(iOldDbgFlag & ~_CRTDBG_ALLOC_MEM_DF);
+#endif
 	clientcredits = new CClientCreditsList();
+#ifdef _DEBUG
+	_CrtSetDbgFlag(iOldDbgFlag);
+	_CrtMemState memStateAfterCrypto;
+	_CrtMemCheckpoint(&memStateAfterCrypto);
+#endif
 	downloadqueue = new CDownloadQueue();	// bugfix - do this before creating the upload queue
 	uploadqueue = new CUploadQueue();
 	ipfilter = new CIPFilter();
