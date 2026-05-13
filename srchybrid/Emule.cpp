@@ -404,6 +404,11 @@ BOOL CemuleApp::InitInstance()
 
 	// output all ASSERT messages to debug device
 	_CrtSetReportMode(_CRT_ASSERT, _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_REPORT_MODE) | _CRTDBG_MODE_DEBUG);
+
+	// Leak-hunt: break in debugger at the allocation that later shows up in
+	// the shutdown leak dump. Set the alloc-id printed by _CrtDumpMemoryLeaks
+	// (the number inside {curly braces}). Disable when not hunting.
+	//_CrtSetBreakAlloc(1648741);
 #endif
 	free((void*)m_pszProfileName);
 	const CString &sConfDir(thePrefs.GetMuleDirectory(EMULE_CONFIGDIR));
