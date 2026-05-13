@@ -484,11 +484,14 @@ BOOL CPPgTweaks::OnInitDialog()
 	m_ctrlTreeOptions.SetItemHeight(m_ctrlTreeOptions.GetItemHeight() + 2);
 
 	m_uFileBufferSize = thePrefs.m_uFileBufferSize;
-	m_ctlFileBuffSize.SetRange(16, 1024 + 512, TRUE);
+	// Cap at 16 MB. HDD sequential-write coalescing saturates around here, and
+	// CPartFile::WriteToBuffer's 2x emergency-flush guard means peak RAM is
+	// 2 * cap * active-downloads -- 16 MB stays bounded under realistic concurrency.
+	m_ctlFileBuffSize.SetRange(16, 16384, TRUE);
 	int iMin, iMax;
 	m_ctlFileBuffSize.GetRange(iMin, iMax);
 	m_ctlFileBuffSize.SetPos(m_uFileBufferSize / 1024);
-	int iPage = 128;
+	int iPage = 2048; //2 MB page step gives ~8 usable PgUp/PgDn steps across the range
 	for (int i = ((iMin + iPage - 1) / iPage) * iPage; i < iMax; i += iPage)
 		m_ctlFileBuffSize.SetTic(i);
 	m_ctlFileBuffSize.SetPageSize(iPage);
