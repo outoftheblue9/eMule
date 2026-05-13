@@ -352,6 +352,7 @@ bool	CPreferences::m_bUseChatCaptchas;
 UINT	CPreferences::filterlevel;
 UINT	CPreferences::m_uFileBufferSize;
 DWORD	CPreferences::m_uFileBufferTimeLimit;
+UINT	CPreferences::m_uForcedFsyncInterval;
 INT_PTR	CPreferences::m_iQueueSize;
 int		CPreferences::m_iCommitFiles;
 UINT	CPreferences::maxmsgsessions;
@@ -2171,6 +2172,10 @@ void CPreferences::LoadPreferences()
 		m_uFileBufferSize = ((m_uFileBufferSize * 15000 + 512) / 1024) * 1024;
 	m_uFileBufferSize = ini.GetInt(_T("FileBufferSize"), m_uFileBufferSize);
 	m_uFileBufferTimeLimit = SEC2MS(ini.GetInt(_T("FileBufferTimeLimit"), 60));
+	// Seconds between forced FlushFileBuffers on partfiles. 0 disables (default).
+	// The legacy 31s sync hurt throughput on busy HDDs without meaningful safety
+	// gains beyond the existing .part.met checkpoint loop.
+	m_uForcedFsyncInterval = (UINT)ini.GetInt(_T("ForcedFsyncInterval"), 0);
 
 	// Get queue size (with backward compatibility)
 	m_iQueueSize = (INT_PTR)ini.GetInt(_T("QueueSizePref"), 50) * 100; // old setting

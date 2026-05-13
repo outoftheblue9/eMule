@@ -2189,8 +2189,12 @@ uint32 CPartFile::Process(uint32 reducedownload, UINT icounter/*in percent*/)
 	// If buffer size exceeds limit, or if not written within time limit, flush data
 	if (m_nTotalBufferData > thePrefs.GetFileBufferSize() || curTick >= m_nLastBufferFlushTime + thePrefs.GetFileBufferTimeLimit())
 		FlushBuffer();
-	//If data keeps arriving, flush to disk sometimes for extra safety
-	if (m_nFileFlushTime && curTick >= m_nFileFlushTime + SEC2MS(31) && m_hWrite != INVALID_HANDLE_VALUE) {
+	//If data keeps arriving, optionally force fsync after the configured interval.
+	//Disabled by default (interval == 0). The .part.met checkpoint loop already
+	//provides crash recovery; the legacy 31s sync stalled the IOCP thread on
+	//busy HDDs without meaningful safety gain.
+	const UINT uFsyncSec = thePrefs.GetForcedFsyncInterval();
+	if (uFsyncSec && m_nFileFlushTime && curTick >= m_nFileFlushTime + SEC2MS(uFsyncSec) && m_hWrite != INVALID_HANDLE_VALUE) {
 		::FlushFileBuffers(m_hWrite);
 		m_nFileFlushTime = 0;
 	}

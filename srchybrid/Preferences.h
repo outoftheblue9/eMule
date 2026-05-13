@@ -504,6 +504,7 @@ public:
 	static INT_PTR	m_iQueueSize;
 	static int		m_iCommitFiles;
 	static DWORD	m_uFileBufferTimeLimit;
+	static UINT		m_uForcedFsyncInterval; // seconds between forced FlushFileBuffers; 0 = disabled (default)
 
 	static UINT		maxmsgsessions;
 	static time_t	versioncheckLastAutomatic;
@@ -1102,6 +1103,7 @@ public:
 
 	static UINT		GetFileBufferSize()					{ return m_uFileBufferSize; }
 	static DWORD	GetFileBufferTimeLimit()			{ return m_uFileBufferTimeLimit; }
+	static UINT		GetForcedFsyncInterval()			{ return m_uForcedFsyncInterval; }
 	static INT_PTR	GetQueueSize()						{ return m_iQueueSize; }
 	static int		GetCommitFiles()					{ return m_iCommitFiles; }
 	static bool		GetShowCopyEd2kLinkCmd()			{ return m_bShowCopyEd2kLinkCmd; }
