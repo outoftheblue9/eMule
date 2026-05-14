@@ -53,6 +53,7 @@
 #include "CollectionViewDialog.h"
 #include "uploaddiskiothread.h"
 #include "PartFileWriteThread.h"
+#include "PartFileAllocThread.h"
 #include "PartFileWriteCoalesce.h"
 #ifndef XP_BUILD
 #include <urlmon.h>
@@ -230,6 +231,8 @@ void CPartFile::Init()
 	lastseencomplete = 0;
 	m_hWrite = INVALID_HANDLE_VALUE;
 	m_iWrites = 0;
+	m_nAllocPending = 0;
+	m_dwAllocError = 0;
 	m_LastSearchTime = 0;
 	m_LastSearchTimeKad = 0;
 	memset(src_stats, 0, sizeof src_stats);
@@ -277,6 +280,7 @@ void CPartFile::Init()
 	m_stopped = false;
 	m_bPauseOnPreview = false;
 	m_insufficient = false;
+	m_dwAllocError = 0;
 	m_bCompletionError = false;
 	m_bAICHPartHashsetNeeded = true;
 	m_bAutoDownPriority = thePrefs.GetNewAutoDown();
@@ -3394,17 +3398,26 @@ void CPartFile::ResumeFile(bool resort)
 		} else
 			ASSERT(0);
 	} else {
+		// Skip the expensive side-effects (SavePartFile, NotifyStatusChange,
+		// UpdateDisplayedInfo) when there's nothing to resume — the file
+		// is already running. Without this, ResetLocalServerRequests on
+		// server connect re-saves every .met file and refreshes every UI
+		// row even for files that were already active, which on a queue
+		// of hundreds takes tens of seconds on the UI thread.
+		const bool bWasIdle = m_paused || m_stopped || status == PS_PAUSED || status == PS_INSUFFICIENT;
 		m_paused = m_stopped = false;
+		InterlockedExchange(&m_dwAllocError, 0); // re-arm alloc retry
 		SetActive(theApp.IsConnected());
 		m_LastSearchTime = 0;
 		if (resort) {
 			theApp.downloadqueue->SortByPriority();
 			theApp.downloadqueue->CheckDiskspace();
 		}
-		SavePartFile();
-		NotifyStatusChange();
-
-		UpdateDisplayedInfo(true);
+		if (bWasIdle) {
+			SavePartFile();
+			NotifyStatusChange();
+			UpdateDisplayedInfo(true);
+		}
 	}
 }
 
@@ -3413,6 +3426,7 @@ void CPartFile::ResumeFileInsufficient()
 	if (status != PS_COMPLETE && status != PS_COMPLETING && m_insufficient) {
 		AddLogLine(false, _T("Resuming download of \"%s\""), (LPCTSTR)GetFileName());
 		m_insufficient = false;
+		InterlockedExchange(&m_dwAllocError, 0); // re-arm alloc retry
 		SetActive(theApp.IsConnected());
 		m_LastSearchTime = 0;
 		UpdateDisplayedInfo(true);
@@ -4035,12 +4049,16 @@ uint32 CPartFile::WriteToBuffer(uint64 transize, const BYTE *data, uint64 start,
 	if (!client && requestedblocks_list.Find(block) != NULL)
 		block->transferred += lenData;
 	// We prefer to flush the buffer on timer, but if we get over our limit too far
-	// (high speed upload), flush here to save memory and time on list processing
+	// (high speed upload), queue an async flush here to save memory and time on
+	// list processing. Only the producer half runs on the caller thread; the
+	// actual WriteFile happens on CPartFileWriteThread. Post-write reaping,
+	// part hashing, met-file save and CompleteFile are deferred to the next
+	// Process() tick to keep the network-receive callback non-blocking.
 	if (m_gaplist.IsEmpty()
 		|| !inSet(GetStatus(), PS_READY, PS_EMPTY) //import parts
 		|| (m_nTotalBufferData > thePrefs.GetFileBufferSize() * 2ull))
 	{
-		FlushBuffer();
+		QueueFlushToWriteThread();
 	}
 
 	// Return the length of data written to the buffer
@@ -4057,6 +4075,22 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 	//	AddDebugLogLine(false, _T("Flushing file %s - buffer size = %ld bytes (%ld queued items) transferred = %ld [time = %ld]"), (LPCTSTR)GetFileName(), m_nTotalBufferData, m_BufferedData_list.GetCount(), m_uTransferred, m_nLastBufferFlushTime);
 
 	try {
+		// CPartFileAllocThread reports OS errors asynchronously via m_dwAllocError.
+		// Read (not exchange) so CPartFileWriteThread::WriteBuffers also sees the
+		// non-zero value and drains queued items back to PB_READY instead of
+		// issuing WriteFile past EOF. ResumeFileInsufficient() / ResumeFile()
+		// clear m_dwAllocError before re-arming the download. Skip the throw
+		// if the file is already paused-insufficient — the handler has already
+		// done its work; re-throwing every tick would spam the error log.
+		if (LONG dwAlloc = m_dwAllocError) {
+			if (m_insufficient || m_paused)
+				return;
+			AfxThrowFileException(
+				(dwAlloc == ERROR_DISK_FULL || dwAlloc == ERROR_HANDLE_DISK_FULL)
+					? CFileException::diskFull : CFileException::generic,
+				dwAlloc, m_hpartfile.GetFileName());
+		}
+
 		ULONGLONG cursize = m_hpartfile.GetLength();
 		bool bCheckDiskspace = thePrefs.IsCheckDiskspaceEnabled() && thePrefs.GetMinFreeDiskSpace() > 0;
 		//Previously full file allocation was performed in a special thread. That thread was writing
@@ -4103,35 +4137,51 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 			if (uIncrease >= uFreeDiskSpace)
 				AfxThrowFileException(CFileException::diskFull, 0, m_hpartfile.GetFileName());
 		}
-		// Ensure file is big enough for asynchronous writes
-		if (newsize)
-			m_hpartfile.SetLength(newsize); // may throw 'diskFull'
+		// Route any file-extension through CPartFileAllocThread. SetLength
+		// itself is metadata-only on NTFS, but the first write that lands
+		// past Valid Data Length forces a synchronous zero-fill of the
+		// gap. That zero-fill, for a multi-GB initial allocation, would
+		// otherwise pin the network thread (here) or the write thread
+		// (when the allocation marker reaches CPartFileWriteThread). The
+		// dedicated alloc thread runs at low CPU + I/O priority and
+		// extends VDL there. Data writes for this file are gated on
+		// m_nAllocPending by CPartFileWriteThread::WriteBuffers until the
+		// alloc completes.
+		if (newsize > cursize) {
+			DbgWrite(_T("eMule FlushBuffer: extend needed file=\"%s\" cursize=%I64u newsize=%I64u\n"),
+				(LPCTSTR)GetFileName(), (uint64)cursize, (uint64)newsize);
+			CPartFileAllocThread *pAlloc = theApp.m_pPartFileAllocThread;
+			if (pAlloc && pAlloc->IsRunning()) {
+				InterlockedIncrement(&m_nAllocPending);
+				pAlloc->EnqueueAlloc(this, newsize);
+			} else {
+				// Fallback: alloc thread unavailable (shutdown / not yet
+				// started). Use legacy synchronous extension so writes
+				// still land in a valid region.
+				DbgWrite(_T("eMule FlushBuffer: alloc thread UNAVAILABLE, fallback sync SetLength on caller thread for \"%s\"\n"),
+					(LPCTSTR)GetFileName());
+				m_hpartfile.SetLength(newsize); // may throw 'diskFull'
+			}
+		}
 
 		//pass data to the writing thread - coalesce contiguous PB_READY fragments
 		//into single overlapped writes so each pulse hits the disk with one
 		//large I/O instead of N tiny ones (per offset adjacency, not list position)
 		CPartFileWriteThread *pThread = theApp.m_pPartFileWriteThread;
 		if (pThread && pThread->IsRunning()) {
-			// Collect PB_READY items, holding back the allocation-tail item (uAllocate==2)
-			// which must be queued AT HEAD as a standalone write to extend the file first.
+			// Collect all PB_READY items. No special-case for an
+			// allocation-tail item anymore: CPartFileAllocThread has
+			// already extended the file (or will, before this file's
+			// writes are issued), so every fragment is just data.
 			std::vector<PartFileBufferedData*> ready;
 			ready.reserve(m_BufferedData_list.GetCount());
-			PartFileBufferedData *pAllocTail = NULL;
-			{
-				POSITION posTail = m_BufferedData_list.GetTailPosition();
-				PartFileBufferedData *pTailItem = (uAllocate == 2 && posTail) ? m_BufferedData_list.GetAt(posTail) : NULL;
-				for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
-					PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
-					if (item->flushed == PB_READY) {
-						if (item == pTailItem)
-							pAllocTail = item; // queued separately at head
-						else
-							ready.push_back(item);
-					}
-				}
+			for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
+				PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
+				if (item->flushed == PB_READY)
+					ready.push_back(item);
 			}
 
-			if (!ready.empty() || pAllocTail) {
+			if (!ready.empty()) {
 				// Build runs of contiguous fragments over the ready set
 				std::vector<MergeFragment> frags;
 				frags.reserve(ready.size());
@@ -4141,13 +4191,6 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 				CoalesceContiguous(frags, runs);
 
 				pThread->m_lockFlushList.Lock();
-				if (uAllocate == 1) //an extra byte to allocate
-					pThread->m_FlushList.AddHead(ToWrite{this, new PartFileBufferedData{(uint64)m_nFileSize, (uint64)m_nFileSize}, NULL});
-				if (pAllocTail) {
-					pThread->m_FlushList.AddHead(ToWrite{this, pAllocTail, NULL});
-					pAllocTail->dwError = 0;
-					pAllocTail->flushed = PB_PENDING;
-				}
 
 				for (const MergedRun &run : runs) {
 					if (run.count == 1) {
@@ -4186,11 +4229,19 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 			PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
 			switch (item->flushed) {
 			case PB_READY:
-				ASSERT(!pThread || !pThread->IsRunning());
+				// Worker thread can flip PB_PENDING back to PB_READY when
+				// CPartFileWriteThread::WriteBuffers observes m_dwAllocError
+				// (set by CPartFileAllocThread after our entry check at line
+				// 4085). Next FlushBuffer tick re-reads m_dwAllocError at top
+				// and throws diskFull, so leaving the item PB_READY is correct.
 			case PB_PENDING:
 				continue;
 			case PB_ERROR:
 				item->flushed = PB_READY; //prepare for resend
+				theApp.QueueDebugLogLineEx(LOG_WARNING,
+					_T("FlushBuffer rethrow file=\"%s\" off=%I64u end=%I64u len=%I64u err=%lu (about to SetStatus PS_ERROR)"),
+					(LPCTSTR)GetFileName(), item->start, item->end,
+					item->end - item->start + 1, (ULONG)item->dwError);
 				CFileException::ThrowOsError((LONG)item->dwError, m_hpartfile.GetFileName());
 			//default:
 			case PB_WRITTEN: //success
@@ -4209,12 +4260,13 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 		for (UINT uPartNumber = 0; uPartNumber < GetPartCount(); ++uPartNumber) {
 			if (!m_aChangedPart[uPartNumber])
 				continue;
-			m_aChangedPart[uPartNumber] = false;
-
 			const uint64 uStart = PARTSIZE * uPartNumber;
 			const uint64 uEnd = min(uStart + PARTSIZE, (uint64)m_nFileSize) - 1;
-			// Is this 9MB part complete
+			// Is this 9MB part complete (including any data still pending in m_BufferedData_list).
+			// Clear the changed flag only here so async-queued writes (PB_PENDING) that make
+			// IsCompleteBD return false don't silently consume the flag before hashing can run.
 			if (IsCompleteBD(uStart, uEnd)) {
+				m_aChangedPart[uPartNumber] = false;
 				// Is part corrupt
 				bool bAICHAgreed;
 				if (!HashSinglePart(uPartNumber, &bAICHAgreed)) {
@@ -4329,6 +4381,127 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 							PauseFile(true);
 					}
 				}
+			}
+		}
+	} catch (CFileException *ex) {
+		FlushBuffersExceptionHandler(ex);
+#ifndef _DEBUG
+	} catch (...) {
+		FlushBuffersExceptionHandler();
+#endif
+	}
+}
+
+void CPartFile::QueueFlushToWriteThread()
+{
+	// Producer half of FlushBuffer. Walks m_BufferedData_list, dispatches any
+	// file-extension to CPartFileAllocThread, coalesces PB_READY fragments
+	// into MergedWrites and posts them to CPartFileWriteThread::m_FlushList.
+	// Intentionally skips the synchronous post-write work (reaping written
+	// items, HashSinglePart, SavePartFile, CompleteFile, diskspace re-check)
+	// so it is safe to call from the network-receive path on the UI thread.
+	// The deferred work is picked up on the next Process()-driven FlushBuffer.
+	if (GetPartCount() <= 0)
+		return;
+
+	try {
+		ULONGLONG cursize = m_hpartfile.GetLength();
+		bool bCheckDiskspace = thePrefs.IsCheckDiskspaceEnabled() && thePrefs.GetMinFreeDiskSpace() > 0;
+
+		byte uAllocate = static_cast<byte>(cursize <= 0 && m_nTotalBufferData > 0 && IsNormalFile() && thePrefs.GetAllocCompleteMode());
+
+		ULONGLONG newsize;
+		if (IsNormalFile() && !m_BufferedData_list.IsEmpty()) {
+			newsize = m_BufferedData_list.GetTail()->end + 1;
+			if (uAllocate) {
+				if (newsize == (uint64)m_nFileSize)
+					uAllocate = 2;
+				else
+					newsize = (uint64)m_nFileSize;
+			} else if (newsize < cursize)
+				newsize = 0;
+		} else
+			newsize = 0;
+
+		if (bCheckDiskspace) {
+			ULONGLONG uFreeDiskSpace = GetFreeDiskSpaceX(GetTmpPath());
+			ULONGLONG uIncrease = thePrefs.GetMinFreeDiskSpace();
+			if (IsNormalFile()) {
+				if (newsize > cursize)
+					uIncrease += newsize - cursize;
+			} else {
+				uIncrease += m_nTotalBufferData;
+			}
+			if (uIncrease >= uFreeDiskSpace)
+				AfxThrowFileException(CFileException::diskFull, 0, m_hpartfile.GetFileName());
+		}
+
+		if (newsize > cursize) {
+			DbgWrite(_T("eMule QueueFlushToWriteThread: extend needed file=\"%s\" cursize=%I64u newsize=%I64u\n"),
+				(LPCTSTR)GetFileName(), (uint64)cursize, (uint64)newsize);
+			CPartFileAllocThread *pAlloc = theApp.m_pPartFileAllocThread;
+			if (pAlloc && pAlloc->IsRunning()) {
+				InterlockedIncrement(&m_nAllocPending);
+				pAlloc->EnqueueAlloc(this, newsize);
+			} else {
+				// Alloc thread unavailable (startup/shutdown). Don't fall
+				// back to synchronous SetLength here — that would defeat
+				// the whole point of this entry point. Skip the queue this
+				// pass; the next Process()-driven FlushBuffer will retry
+				// (and may use the legacy sync fallback on its own).
+				DbgWrite(_T("eMule QueueFlushToWriteThread: alloc thread UNAVAILABLE, deferring queue for \"%s\"\n"),
+					(LPCTSTR)GetFileName());
+				return;
+			}
+		}
+
+		CPartFileWriteThread *pThread = theApp.m_pPartFileWriteThread;
+		if (pThread && pThread->IsRunning()) {
+			std::vector<PartFileBufferedData*> ready;
+			ready.reserve(m_BufferedData_list.GetCount());
+			for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
+				PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
+				if (item->flushed == PB_READY)
+					ready.push_back(item);
+			}
+
+			if (!ready.empty()) {
+				std::vector<MergeFragment> frags;
+				frags.reserve(ready.size());
+				for (PartFileBufferedData *p : ready)
+					frags.push_back(MergeFragment{p->start, p->end, p->data});
+				std::vector<MergedRun> runs;
+				CoalesceContiguous(frags, runs);
+
+				pThread->m_lockFlushList.Lock();
+				for (const MergedRun &run : runs) {
+					if (run.count == 1) {
+						PartFileBufferedData *item = ready[run.firstIdx];
+						pThread->m_FlushList.AddTail(ToWrite{this, item, NULL});
+						item->dwError = 0;
+						item->flushed = PB_PENDING;
+					} else {
+						const uint64 uMergeStart = ready[run.firstIdx]->start;
+						const uint64 uMergeEnd = ready[run.firstIdx + run.count - 1]->end;
+						const size_t uLen = static_cast<size_t>(uMergeEnd - uMergeStart + 1);
+						BYTE *pData = new BYTE[uLen];
+						MergedWrite *pMerge = new MergedWrite{pData, uMergeStart, uMergeEnd, {}};
+						pMerge->sources.reserve(run.count);
+						for (size_t k = 0; k < run.count; ++k) {
+							PartFileBufferedData *item = ready[run.firstIdx + k];
+							const size_t uItemLen = static_cast<size_t>(item->end - item->start + 1);
+							const size_t uOffset = static_cast<size_t>(item->start - uMergeStart);
+							memcpy(pData + uOffset, item->data, uItemLen);
+							pMerge->sources.push_back(item);
+							item->dwError = 0;
+							item->flushed = PB_PENDING;
+						}
+						pThread->m_FlushList.AddTail(ToWrite{this, NULL, pMerge});
+					}
+				}
+				pThread->m_lockFlushList.Unlock();
+				if (!pThread->m_FlushList.IsEmpty())
+					pThread->WakeUpCall();
 			}
 		}
 	} catch (CFileException *ex) {

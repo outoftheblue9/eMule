@@ -122,9 +122,12 @@ void CCorruptionBlackBox::ReceivedData(uint64 nStartPos, uint64 nEndPos, const C
 					cbbRec.m_nEndPos = nRelEndPos;
 					cbbRec.m_dwIP = dwSenderIP;
 
+					// Save cbbRec fields BEFORE Add: CArray::Add can
+					// reallocate storage, invalidating the cbbRec reference.
+					const uint64 nNewMidEnd = cbbRec.m_nEndPos; // == nRelEndPos
 					m_aaRecords[nPart].Add(CCBBRecord(nOldStartPos, nRelStartPos - 1, dwOldIP));
 					//prepare to add one more block
-					nRelStartPos = cbbRec.m_nEndPos + 1;
+					nRelStartPos = nNewMidEnd + 1;
 					nRelEndPos = nOldEndPos;
 					dwSenderIP = dwOldIP;
 					ndbgRewritten += nRelEndPos - nRelStartPos + 1;

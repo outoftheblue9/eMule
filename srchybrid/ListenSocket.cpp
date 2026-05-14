@@ -57,6 +57,7 @@ CClientReqSocket::CClientReqSocket(CUpDownClient *in_client)
 	, m_nOnConnect(SS_Other)
 	, deletethis()
 	, m_bPortTestCon()
+	, m_nCallbackDepth(0)
 {
 	SetClient(in_client);
 	theApp.listensocket->AddSocket(this);
@@ -155,6 +156,7 @@ bool CClientReqSocket::CheckTimeOut()
 
 void CClientReqSocket::OnClose(int nErrorCode)
 {
+	CCallbackGuard guard(this);
 	ASSERT(theApp.listensocket->IsValidSocket(this));
 	CEMSocket::OnClose(nErrorCode);
 
@@ -1683,6 +1685,7 @@ void CClientReqSocket::DbgAppendClientInfo(CString &str)
 
 void CClientReqSocket::OnConnect(int nErrorCode)
 {
+	CCallbackGuard guard(this);
 	SetConState(SS_Complete);
 	CEMSocket::OnConnect(nErrorCode);
 	if (nErrorCode) {
@@ -1700,12 +1703,14 @@ void CClientReqSocket::OnConnect(int nErrorCode)
 
 void CClientReqSocket::OnSend(int nErrorCode)
 {
+	CCallbackGuard guard(this);
 	ResetTimeOutTimer();
 	CEMSocket::OnSend(nErrorCode);
 }
 
 void CClientReqSocket::OnError(int nErrorCode)
 {
+	CCallbackGuard guard(this);
 	CString strTCPError;
 	if (thePrefs.GetVerbose()) {
 		if (nErrorCode == ERR_WRONGHEADER)
@@ -1812,6 +1817,7 @@ bool CClientReqSocket::PacketReceived(Packet *packet)
 
 void CClientReqSocket::OnReceive(int nErrorCode)
 {
+	CCallbackGuard guard(this);
 	ResetTimeOutTimer();
 	CEMSocket::OnReceive(nErrorCode);
 }
@@ -2125,6 +2131,12 @@ void CListenSocket::Process()
 	for (POSITION pos = socket_list.GetHeadPosition(); pos != NULL;) {
 		CClientReqSocket *cur_sock = socket_list.GetNext(pos);
 		if (cur_sock->deletethis) {
+			// Defer deletion if a socket callback is still on the call stack
+			// (e.g. a nested message pump dispatched the Process timer while
+			// OnReceive is running). Deleting 'cur_sock' here would leave the
+			// outer callback dereferencing freed memory.
+			if (cur_sock->m_nCallbackDepth > 0)
+				continue;
 			if (cur_sock->m_SocketData.hSocket != INVALID_SOCKET)
 				cur_sock->Close();			// calls 'closesocket'
 			else

@@ -77,6 +77,22 @@ protected:
 	uint32	m_nOnConnect;
 	bool	deletethis;
 	bool	m_bPortTestCon;
+	int		m_nCallbackDepth;
+
+	// RAII guard preventing CListenSocket::Process from deleting a socket
+	// whose callback is still on the call stack (e.g. a nested message pump
+	// inside OnReceive that fires the Process timer would otherwise free
+	// `this` mid-execution, leaving the outer callback dereferencing
+	// debug-heap-filled memory).
+	class CCallbackGuard
+	{
+		CClientReqSocket *m_pSock;
+	public:
+		explicit CCallbackGuard(CClientReqSocket *p) : m_pSock(p) { ++p->m_nCallbackDepth; }
+		~CCallbackGuard() { --m_pSock->m_nCallbackDepth; }
+		CCallbackGuard(const CCallbackGuard&) = delete;
+		CCallbackGuard& operator=(const CCallbackGuard&) = delete;
+	};
 };
 
 

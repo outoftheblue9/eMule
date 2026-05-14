@@ -435,10 +435,14 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 			}
 
 			ASSERT(reinterpret_cast<CKnownFile*>(pvProgressParam)->IsKindOf(RUNTIME_CLASS(CKnownFile)));
-			ASSERT(reinterpret_cast<CKnownFile*>(pvProgressParam)->GetFileSize() == GetFileSize());
-			WPARAM uProgress = (WPARAM)(100 - (togo * 100) / (uint64)GetFileSize());
-			ASSERT(uProgress <= 100);
-			VERIFY(theApp.emuledlg->PostMessage(TM_FILEOPPROGRESS, uProgress, (LPARAM)pvProgressParam));
+			// Size can legitimately differ when a part file whose alloc was
+			// interrupted mid-extension is rehashed at startup; skip progress
+			// in that case rather than asserting.
+			if (reinterpret_cast<CKnownFile*>(pvProgressParam)->GetFileSize() == GetFileSize()) {
+				WPARAM uProgress = (WPARAM)(100 - (togo * 100) / (uint64)GetFileSize());
+				ASSERT(uProgress <= 100);
+				VERIFY(theApp.emuledlg->PostMessage(TM_FILEOPPROGRESS, uProgress, (LPARAM)pvProgressParam));
+			}
 		}
 	}
 

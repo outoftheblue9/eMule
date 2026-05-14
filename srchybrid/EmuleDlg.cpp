@@ -95,6 +95,7 @@
 #include "ExitBox.h"
 #include "UploadDiskIOThread.h"
 #include "PartFileWriteThread.h"
+#include "PartFileAllocThread.h"
 #include "ImportParts.h"
 #include "ClientCredits.h"
 #include "FirewallOpener.h"
@@ -1680,6 +1681,7 @@ void CemuleDlg::OnClose()
 	sLock1.Lock(SEC2MS(2));
 
 	theApp.m_pUploadDiskIOThread->EndThread();
+	theApp.m_pPartFileAllocThread->EndThread();
 	theApp.m_pPartFileWriteThread->EndThread();
 
 	// saving data & stuff
@@ -1752,6 +1754,7 @@ void CemuleDlg::OnClose()
 	delete theApp.lastCommonRouteFinder;	theApp.lastCommonRouteFinder = NULL;
 	delete theApp.m_pUPnPFinder;			theApp.m_pUPnPFinder = NULL;
 	delete theApp.m_pUploadDiskIOThread;	theApp.m_pUploadDiskIOThread = NULL;
+	delete theApp.m_pPartFileAllocThread;	theApp.m_pPartFileAllocThread = NULL;
 	delete theApp.m_pPartFileWriteThread;	theApp.m_pPartFileWriteThread = NULL;
 
 	thePrefs.Uninit();

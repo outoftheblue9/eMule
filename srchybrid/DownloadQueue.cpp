@@ -19,6 +19,7 @@
 #include "UpDownClient.h"
 #include "DownloadQueue.h"
 #include "PartFile.h"
+#include "PartFileAllocThread.h"
 #include "ed2kLink.h"
 #include "SearchFile.h"
 #include "ClientList.h"
@@ -1278,16 +1279,34 @@ void CDownloadQueue::SetAutoCat(CPartFile *newfile)
 
 void CDownloadQueue::ResetLocalServerRequests()
 {
+	const DWORD t0 = ::GetTickCount();
+	DbgWrite(_T("eMule ResetLocalServerRequests: enter filelist.count=%d\n"),
+		(int)filelist.GetCount());
+
 	m_dwNextTCPSrcReq = 0;
 	m_localServerReqQueue.RemoveAll();
 
+	// ResumeFile(true) triggers SortByPriority + CheckDiskspace, each
+	// iterating the whole filelist. Running that per-file makes this loop
+	// O(N^2) with disk I/O on the UI thread on every server connect. Pass
+	// resort=false here and do the sort + diskspace check once after.
+	bool bAnyResumed = false;
 	for (POSITION pos = filelist.GetHeadPosition(); pos != NULL;) {
 		CPartFile *pFile = filelist.GetNext(pos);
 		EPartFileStatus uState = pFile->GetStatus();
-		if (uState == PS_READY || uState == PS_EMPTY)
-			pFile->ResumeFile();
+		if (uState == PS_READY || uState == PS_EMPTY) {
+			pFile->ResumeFile(false);
+			bAnyResumed = true;
+		}
 		pFile->m_bLocalSrcReqQueued = false;
 	}
+	if (bAnyResumed) {
+		SortByPriority();
+		CheckDiskspace();
+	}
+
+	DbgWrite(_T("eMule ResetLocalServerRequests: exit in %lums (resumed=%d)\n"),
+		::GetTickCount() - t0, (int)bAnyResumed);
 }
 
 void CDownloadQueue::RemoveLocalServerRequest(CPartFile *pFile)

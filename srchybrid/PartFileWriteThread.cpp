@@ -137,9 +137,41 @@ UINT CPartFileWriteThread::RunInternal()
 void CPartFileWriteThread::WriteBuffers()
 {
 	//process internal list
+	CList<ToWrite> deferred;
 	while (!m_listToWrite.IsEmpty() && m_Run) {
 		const ToWrite item = m_listToWrite.RemoveHead();
 		ASSERT(!(item.pBuffer && item.pMerge)); //mutually exclusive
+
+		// Defer writes for files whose CPartFileAllocThread extension is
+		// still in flight. The alloc thread will WakeUpCall() us when it
+		// completes; we'll re-enter and try again then.
+		if (item.pFile && item.pFile->m_nAllocPending != 0) {
+			deferred.AddTail(item);
+			continue;
+		}
+
+		// If the alloc thread reported an error for this file (e.g. disk
+		// full), abort the queued write rather than issuing WriteFile past
+		// EOF. Return source items to PB_READY so they stay in
+		// CPartFile::m_BufferedData_list. The main thread's FlushBuffer
+		// will consume m_dwAllocError, throw CFileException::diskFull, and
+		// route the file to PS_INSUFFICIENT. On resume, the next flush
+		// re-enqueues alloc and these items get retried.
+		if (item.pFile && item.pFile->m_dwAllocError != 0) {
+			if (item.pMerge) {
+				for (PartFileBufferedData *src : item.pMerge->sources)
+					src->flushed = PB_READY;
+				delete[] item.pMerge->data;
+				delete item.pMerge;
+			} else if (item.pBuffer && item.pBuffer->data) {
+				item.pBuffer->flushed = PB_READY;
+			} else if (item.pBuffer) {
+				// allocation marker — owned by the queue
+				delete item.pBuffer;
+			}
+			continue;
+		}
+
 		PartFileBufferedData *pBuffer = item.pBuffer;
 		MergedWrite *pMerge = item.pMerge;
 		const uint64 uStart = pMerge ? pMerge->start : pBuffer->start;
@@ -169,15 +201,25 @@ void CPartFileWriteThread::WriteBuffers()
 							src->dwError = dwError;
 							src->flushed = PB_ERROR;
 						}
-						theApp.QueueDebugLogLineEx(LOG_WARNING, _T("WriteBuffers error (merged x%Iu): %lu"), pMerge->sources.size(), dwError);
+						theApp.QueueDebugLogLineEx(LOG_WARNING,
+							_T("WriteBuffers sync error (merged x%Iu) file=\"%s\" off=%I64u len=%I64u err=%lu"),
+							pMerge->sources.size(),
+							pFile ? (LPCTSTR)pFile->GetFileName() : _T("?"),
+							uStart, uEnd - uStart + 1, dwError);
 						delete[] pMerge->data;
 						delete pMerge;
 					} else if (pBuffer->data) { //check for an allocation request
 						pBuffer->dwError = dwError;
 						pBuffer->flushed = PB_ERROR;
-						theApp.QueueDebugLogLineEx(LOG_WARNING, _T("WriteBuffers error: %lu"), dwError);
+						theApp.QueueDebugLogLineEx(LOG_WARNING,
+							_T("WriteBuffers sync error file=\"%s\" off=%I64u len=%I64u err=%lu"),
+							pFile ? (LPCTSTR)pFile->GetFileName() : _T("?"),
+							uStart, uEnd - uStart + 1, dwError);
 					}
 					RemFile(pFile);
+					// re-add deferred items below before returning
+					while (!deferred.IsEmpty())
+						m_listToWrite.AddHead(deferred.RemoveTail());
 					return;
 				}
 			}
@@ -191,6 +233,12 @@ void CPartFileWriteThread::WriteBuffers()
 			}
 		}
 	}
+
+	// Put deferred (alloc-pending) items back at the head, preserving
+	// their original order. They'll be retried on the next pulse — the
+	// alloc thread fires WakeUpCall() on completion to trigger it.
+	while (!deferred.IsEmpty())
+		m_listToWrite.AddHead(deferred.RemoveTail());
 }
 
 void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const OverlappedWrite_Struct *pOvWrite)
@@ -219,7 +267,7 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 						src->flushed = PB_WRITTEN;
 					}
 				} else if (pBuffer->data) { //write data
-					ASSERT(pBuffer->flushed = PB_PENDING && pFile->m_iWrites >= 0);
+					ASSERT(pBuffer->flushed == PB_PENDING && pFile->m_iWrites >= 0);
 					pBuffer->flushed = PB_WRITTEN;
 				} else { //full file allocation
 					ASSERT(dwBytesWritten == 1);
@@ -229,13 +277,25 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 				}
 			}
 		} else {
+			// OVERLAPPED::Internal holds the NTSTATUS of the failed I/O. Log it
+			// so the cause of the PS_ERROR transition is identifiable instead
+			// of opaque (the throw site only has access to dwError on the item).
+			const DWORD dwNt = (DWORD)pOvWrite->oOverlap.Internal;
 			if (pMerge) {
 				for (PartFileBufferedData *src : pMerge->sources)
 					src->flushed = PB_ERROR;
+				theApp.QueueDebugLogLineEx(LOG_WARNING,
+					_T("WriteCompletion ERROR (merged) file=\"%s\" off=%I64u len=%lu written=%lu NTSTATUS=0x%08lx sources=%Iu"),
+					pFile ? (LPCTSTR)pFile->GetFileName() : _T("?"),
+					uStart, dwWrite, dwBytesWritten, dwNt, pMerge->sources.size());
 			} else {
 				pBuffer->flushed = PB_ERROR; //error code is unknown
+				theApp.QueueDebugLogLineEx(LOG_WARNING,
+					_T("WriteCompletion ERROR file=\"%s\" off=%I64u len=%lu written=%lu NTSTATUS=0x%08lx"),
+					pFile ? (LPCTSTR)pFile->GetFileName() : _T("?"),
+					uStart, dwWrite, dwBytesWritten, dwNt);
 			}
-			Debug(_T("  Completed write size: expected %lu, written %lu\n"), dwWrite, dwBytesWritten);
+			Debug(_T("  Completed write size: expected %lu, written %lu, NTSTATUS=0x%08lx\n"), dwWrite, dwBytesWritten, dwNt);
 		}
 
 		if (pMerge) {

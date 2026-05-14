@@ -64,6 +64,7 @@
 #include "UPnPImplWrapper.h"
 #include "UploadDiskIOThread.h"
 #include "PartFileWriteThread.h"
+#include "PartFileAllocThread.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -634,6 +635,7 @@ BOOL CemuleApp::InitInstance()
 
 	m_pUploadDiskIOThread = new CUploadDiskIOThread();
 	m_pPartFileWriteThread = new CPartFileWriteThread();
+	m_pPartFileAllocThread = new CPartFileAllocThread();
 
 	thePerfLog.Startup();
 	emuledlg->DoModal();

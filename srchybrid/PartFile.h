@@ -230,6 +230,11 @@ public:
 	// Barry - Added as replacement for BlockReceived to buffer data before writing to disk
 	uint32	WriteToBuffer(uint64 transize, const BYTE *data, uint64 start, uint64 end, Requested_Block_Struct *block, const CUpDownClient *client, bool bCopyData);
 	void	FlushBuffer(bool bForceICH = false, bool bNoAICH = false);
+	// Producer half of FlushBuffer: alloc-thread dispatch + queue ready
+	// fragments to CPartFileWriteThread. Skips post-write reaping, part
+	// hashing, met-file save and CompleteFile so it can be called from the
+	// network-receive path without blocking the UI thread.
+	void	QueueFlushToWriteThread();
 	// Barry - This will invert the gap list, up to the caller to delete gaps when done
 	// 'Gaps' returned are really the filled areas, and guaranteed to be in order
 	void	GetFilledArray(CArray<Gap_Struct> &filled) const;
@@ -335,6 +340,8 @@ public:
 	CMutex	m_FileCompleteMutex;		// Lord KiRon - Mutex for file completion
 	HANDLE	m_hWrite;					// asynchronous part file writing
 	int		m_iWrites;					// outstanding I/O counter - read only in the main thread
+	volatile LONG m_nAllocPending;		// CPartFileAllocThread requests in flight; write thread defers data writes while > 0
+	volatile LONG m_dwAllocError;		// last OS error from CPartFileAllocThread (e.g. ERROR_DISK_FULL); 0 = none; consumed by next FlushBuffer on main thread
 	DWORD	m_LastSearchTime;
 	DWORD	m_LastSearchTimeKad;
 	uint16	src_stats[4];

@@ -428,6 +428,42 @@ int CAddFileThread::Run()
 	else
 		Log(_T("%s \"%s\""), (LPCTSTR)GetResString(IDS_HASHINGFILE), strFilePath);
 
+	// Recovery: if this is a part file rehash and the disk file is smaller than
+	// the expected final size (e.g. PartFileAllocThread was interrupted), extend
+	// it to the full expected size with zeros before hashing. Parts covering the
+	// zero-filled region will fail their hash check in PartFileHashFinished and
+	// be added back to the gap list so the download resumes correctly.
+	// We intentionally do NOT restore the mtime here: CreateFromFile will
+	// capture the new mtime and SavePartFile will persist it, preventing a
+	// spurious rehash at the next startup.
+	if (m_partfile && !theApp.IsClosing()) {
+		const uint64 uExpected = (uint64)m_partfile->GetFileSize();
+		if (uExpected > 0) {
+			HANDLE hExt = ::CreateFile(strFilePath, GENERIC_WRITE,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+			if (hExt != INVALID_HANDLE_VALUE) {
+				LARGE_INTEGER liDisk{};
+				if (::GetFileSizeEx(hExt, &liDisk) && (uint64)liDisk.QuadPart < uExpected) {
+					LogWarning(_T("Part file \"%s\" is %I64u bytes on disk but expected %I64u — extending for rehash"),
+						(LPCTSTR)m_partfile->GetFileName(), (uint64)liDisk.QuadPart, uExpected);
+					LARGE_INTEGER liNew;
+					liNew.QuadPart = (LONGLONG)uExpected;
+					if (::SetFilePointerEx(hExt, liNew, NULL, FILE_BEGIN) && ::SetEndOfFile(hExt)) {
+						LARGE_INTEGER liLast;
+						liLast.QuadPart = (LONGLONG)(uExpected - 1);
+						if (::SetFilePointerEx(hExt, liLast, NULL, FILE_BEGIN)) {
+							BYTE zero = 0;
+							DWORD dw = 0;
+							::WriteFile(hExt, &zero, 1, &dw, NULL);
+						}
+					}
+				}
+				::CloseHandle(hExt);
+			}
+		}
+	}
+
 	if (!theApp.IsClosing()) {
 		CKnownFile *newKnown = new CKnownFile();
 		if (newKnown->CreateFromFile(m_strDirectory, m_strFilename, m_partfile)) { // SLUGFILLER: SafeHash - in case of shutdown while still hashing
