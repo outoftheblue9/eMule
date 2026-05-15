@@ -65,6 +65,7 @@
 #include "UploadDiskIOThread.h"
 #include "PartFileWriteThread.h"
 #include "PartFileAllocThread.h"
+#include "SplashScreen.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -289,6 +290,8 @@ CemuleApp::CemuleApp(LPCTSTR lpszAppName)
 	, m_bGuardClipboardPrompt()
 	, m_bAutoStart()
 	, m_bStandbyOff()
+	, m_pSplashWnd()
+	, m_dwSplashTime(_UI32_MAX)
 {
 	// Initialize Windows security features.
 #if !defined(_DEBUG) && !defined(_WIN64)
@@ -499,6 +502,16 @@ BOOL CemuleApp::InitInstance()
 	thePrefs.Init();
 	theStats.Init();
 
+	// Splash screen comes up here so the user sees loading progress for the rest of
+	// CemuleApp::InitInstance (knownfiles / serverlist / downloadqueue load) and through
+	// CemuleDlg::OnInitDialog. Suppressed when start-minimized or disabled in preferences.
+	{
+		const bool bWillStartMinimized = !thePrefs.IsFirstStart()
+			&& (thePrefs.GetStartMinimized() || DidWeAutoStart());
+		if (thePrefs.UseSplashScreen() && !bWillStartMinimized)
+			ShowSplash();
+	}
+
 	// check if we have to restart eMule as Secure user
 	if (thePrefs.IsRunAsUserEnabled()) {
 		CSecRunAsUser rau;
@@ -593,9 +606,12 @@ BOOL CemuleApp::InitInstance()
 	clientlist = new CClientList();
 	friendlist = new CFriendList();
 	searchlist = new CSearchList();
+	SetSplashStatus(IDS_SPLASH_LOAD_KNOWN);
 	knownfiles = new CKnownFileList();
+	SetSplashStatus(IDS_SPLASH_LOAD_SERVERS);
 	serverlist = new CServerList();
 	serverconnect = new CServerConnect();
+	SetSplashStatus(IDS_SPLASH_LOAD_SHARED);
 	sharedfiles = new CSharedFileList(serverconnect);
 	listensocket = new CListenSocket();
 	clientudp = new CClientUDPSocket();
@@ -610,6 +626,7 @@ BOOL CemuleApp::InitInstance()
 	// self-test's first-touch allocations bypass debug-heap tracking and
 	// don't pollute the leak report. The singletons are still freed by
 	// their own atexit hooks (free() handles both tracked and untracked).
+	SetSplashStatus(IDS_SPLASH_INIT_CRYPTO);
 #ifdef _DEBUG
 	_CrtMemState memStateBeforeCrypto;
 	_CrtMemCheckpoint(&memStateBeforeCrypto);
@@ -622,8 +639,10 @@ BOOL CemuleApp::InitInstance()
 	_CrtMemState memStateAfterCrypto;
 	_CrtMemCheckpoint(&memStateAfterCrypto);
 #endif
+	SetSplashStatus(IDS_SPLASH_LOAD_DOWNLOADS);
 	downloadqueue = new CDownloadQueue();	// bugfix - do this before creating the upload queue
 	uploadqueue = new CUploadQueue();
+	SetSplashStatus(IDS_SPLASH_LOAD_IPFILTER);
 	ipfilter = new CIPFilter();
 	webserver = new CWebServer(); // Web Server [kuchin]
 	scheduler = new CScheduler();
@@ -676,6 +695,56 @@ int CemuleApp::ExitInstance()
 		timeEndPeriod(m_wTimerRes);
 
 	return CWinApp::ExitInstance();
+}
+
+void CemuleApp::ShowSplash()
+{
+	ASSERT(m_pSplashWnd == NULL);
+	if (m_pSplashWnd != NULL)
+		return;
+	try {
+		m_pSplashWnd = new CSplashScreen;
+	} catch (...) {
+		m_pSplashWnd = NULL;
+		return;
+	}
+	// Created without a parent: emuledlg does not exist yet on the first call from CemuleApp::InitInstance.
+	if (m_pSplashWnd->Create(CSplashScreen::IDD, NULL)) {
+		m_pSplashWnd->ShowWindow(SW_SHOW);
+		m_pSplashWnd->UpdateWindow();
+		m_dwSplashTime = ::GetTickCount();
+	} else {
+		delete m_pSplashWnd;
+		m_pSplashWnd = NULL;
+	}
+}
+
+void CemuleApp::DestroySplash()
+{
+	if (m_pSplashWnd != NULL) {
+		m_pSplashWnd->EndDialog(IDOK); // closes the modeless dialog
+		delete m_pSplashWnd;
+		m_pSplashWnd = NULL;
+	}
+#ifdef _BETA
+	// only do it once to not be annoying given that the beta phases are expected to last longer these days
+	if (!thePrefs.IsFirstStart() && thePrefs.ShouldBetaNag()) {
+		thePrefs.SetDidBetaNagging();
+		LocMessageBox(IDS_BETANAG, MB_ICONINFORMATION | MB_OK, 0);
+	}
+#endif
+}
+
+void CemuleApp::SetSplashStatus(UINT nResID)
+{
+	if (m_pSplashWnd != NULL)
+		m_pSplashWnd->SetStatus(nResID);
+}
+
+void CemuleApp::SetSplashStatus(LPCTSTR pszStatus)
+{
+	if (m_pSplashWnd != NULL)
+		m_pSplashWnd->SetStatus(pszStatus);
 }
 
 #ifdef _DEBUG

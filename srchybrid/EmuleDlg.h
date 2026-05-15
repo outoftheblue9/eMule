@@ -41,7 +41,6 @@ class CPreferencesDlg;
 class CSearchDlg;
 class CServerWnd;
 class CSharedFilesWnd;
-class CSplashScreen;
 class CStatisticsDlg;
 class CTransferDlg;
 struct Status;
@@ -152,7 +151,6 @@ public:
 	CIrcWnd			*ircwnd;
 	CMuleToolbarCtrl *toolbar;
 	CKademliaWnd	*kademliawnd;
-	CSplashScreen	*m_pSplashWnd;
 	CWnd			*activewnd;
 	uint8			status;
 
@@ -195,11 +193,6 @@ protected:
 	float			m_prevProgress;
 	HICON			m_ovlIcon;
 #endif
-
-	// Splash screen
-	DWORD m_dwSplashTime;
-	void ShowSplash();
-	void DestroySplash();
 
 	// Mini Mule
 	CMiniMule	*m_pMiniMule;

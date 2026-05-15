@@ -206,7 +206,6 @@ END_MESSAGE_MAP()
 
 CemuleDlg::CemuleDlg(CWnd *pParent /*=NULL*/)
 	: CTrayDialog(CemuleDlg::IDD, pParent)
-	, m_pSplashWnd()
 	, activewnd()
 	, status()
 	, m_wpFirstRestore()
@@ -237,7 +236,6 @@ CemuleDlg::CemuleDlg(CWnd *pParent /*=NULL*/)
 	, m_currentTBP_state(TBPF_NOPROGRESS)
 	, m_prevProgress()
 	, m_ovlIcon()
-	, m_dwSplashTime(_UI32_MAX)
 	, m_pMiniMule()
 	, m_hTimer()
 	, m_hUPnPTimeOutTimer()
@@ -380,9 +378,11 @@ BOOL CemuleDlg::OnInitDialog()
 	if (!thePrefs.IsFirstStart())
 		m_bStartMinimized = thePrefs.GetStartMinimized() || theApp.DidWeAutoStart();
 
-	// show splash screen as early as possible to "entertain" user while starting emule up
-	if (thePrefs.UseSplashScreen() && !m_bStartMinimized)
-		ShowSplash();
+	// Splash screen was already created early by CemuleApp::InitInstance so the user sees status
+	// during pre-dialog initialization (file loads, hashing init, etc.). If something suppressed
+	// it earlier (preference off, start-minimized, allocation failure) we do not retroactively
+	// open one here.
+	theApp.SetSplashStatus(IDS_SPLASH_BUILD_UI);
 
 	// Create global GUI objects
 	theApp.CreateAllFonts();
@@ -449,6 +449,7 @@ BOOL CemuleDlg::OnInitDialog()
 	SetStatusBarPartsSize();
 
 	// create main window dialog pages
+	theApp.SetSplashStatus(IDS_SPLASH_BUILD_TABS);
 	DialogCreateIndirect(serverwnd, IDD_SERVER);
 	DialogCreateIndirect(sharedfileswnd, IDD_FILES);
 	searchwnd->CreateWnd(this); // can not use 'DialogCreateIndirect' for the SearchWnd, grrr...
@@ -603,8 +604,10 @@ BOOL CemuleDlg::OnInitDialog()
 	}
 	SetWindowPlacement(&wp);
 
-	if (thePrefs.GetWSIsEnabled())
+	if (thePrefs.GetWSIsEnabled()) {
+		theApp.SetSplashStatus(IDS_SPLASH_START_WEBUI);
 		theApp.webserver->StartServer();
+	}
 
 	VERIFY((m_hTimer = ::SetTimer(NULL, 0, SEC2MS(3)/10, StartupTimer)) != 0);
 	if (thePrefs.GetVerbose() && !m_hTimer)
@@ -617,13 +620,14 @@ BOOL CemuleDlg::OnInitDialog()
 	if (thePrefs.IsFirstStart()) {
 		// temporary disable the 'startup minimized' option, otherwise no window will be shown at all
 		m_bStartMinimized = false;
-		DestroySplash();
+		theApp.DestroySplash();
 		FirstTimeWizard();
 	}
 
 	VERIFY(m_pDropTarget->Register(this));
 
 	// start aichsyncthread
+	theApp.SetSplashStatus(IDS_SPLASH_START_HASH);
 	AfxBeginThread(RUNTIME_CLASS(CAICHSyncThread), THREAD_PRIORITY_IDLE, 0);
 
 	// debug info
@@ -631,6 +635,17 @@ BOOL CemuleDlg::OnInitDialog()
 
 	if (!thePrefs.HasCustomTaskIconColor())
 		SetTaskbarIconColor();
+
+	// Load saved searches synchronously while the splash is still visible.
+	// Previously this ran in StartupTimer case 5 after splash dismissal and
+	// blocked the UI thread for ~3 seconds.
+	if (thePrefs.IsStoringSearchesEnabled()) {
+		theApp.SetSplashStatus(IDS_SPLASH_LOAD_SEARCHES);
+		theApp.searchlist->LoadSearches();
+	}
+
+	theApp.SetSplashStatus(IDS_SPLASH_READY);
+	theApp.DestroySplash();
 
 	return TRUE;
 }
@@ -734,9 +749,10 @@ void CALLBACK CemuleDlg::StartupTimer(HWND /*hwnd*/, UINT /*uiMsg*/, UINT_PTR /*
 			}
 			break;
 		case 5:
+			// LoadSearches now runs in OnInitDialog (during splash) to avoid a
+			// multi-second post-splash UI-thread freeze. Step kept as a no-op
+			// to preserve the state-machine cadence.
 			++theApp.emuledlg->status;
-			if (thePrefs.IsStoringSearchesEnabled())
-				theApp.searchlist->LoadSearches();
 			break;
 		default:
 			theApp.emuledlg->StopTimer();
@@ -786,9 +802,9 @@ void CemuleDlg::OnSysCommand(UINT nID, LPARAM lParam)
 	case MP_ABOUTBOX:
 		{
 			CCreditsDlg dlgAbout;
-			m_pSplashWnd = (CSplashScreen*)&dlgAbout;
+			theApp.m_pSplashWnd = (CSplashScreen*)&dlgAbout;
 			dlgAbout.DoModal();
-			m_pSplashWnd = NULL;
+			theApp.m_pSplashWnd = NULL;
 			break;
 		}
 	case MP_VERSIONCHECK:
@@ -2794,42 +2810,8 @@ LRESULT CemuleDlg::OnVersionCheckResponse(WPARAM, LPARAM lParam)
 	return 0;
 }
 
-void CemuleDlg::ShowSplash()
-{
-	ASSERT(m_pSplashWnd == NULL);
-	if (m_pSplashWnd == NULL) {
-		try {
-			m_pSplashWnd = new CSplashScreen;
-		} catch (...) {
-			return;
-		}
-		ASSERT(m_hWnd);
-		if (m_pSplashWnd->Create(CSplashScreen::IDD, this)) {
-			m_pSplashWnd->ShowWindow(SW_SHOW);
-			m_pSplashWnd->UpdateWindow();
-			m_dwSplashTime = ::GetTickCount();
-		} else {
-			delete m_pSplashWnd;
-			m_pSplashWnd = NULL;
-		}
-	}
-}
-
-void CemuleDlg::DestroySplash()
-{
-	if (m_pSplashWnd != NULL) {
-		m_pSplashWnd->EndDialog(IDOK); //deletes the dialog
-		delete m_pSplashWnd;
-		m_pSplashWnd = NULL;
-	}
-#ifdef _BETA
-	// only do it once to not be annoying given that the beta phases are expected to last longer these days
-	if (!thePrefs.IsFirstStart() && thePrefs.ShouldBetaNag()) {
-		thePrefs.SetDidBetaNagging();
-		LocMessageBox(IDS_BETANAG, MB_ICONINFORMATION | MB_OK, 0);
-	}
-#endif
-}
+// ShowSplash / DestroySplash moved to CemuleApp so the splash can live before and after the main
+// dialog. The post-splash beta-nag message is now triggered by CemuleApp::DestroySplash.
 
 BOOL CemuleApp::IsIdleMessage(MSG *pMsg)
 {
@@ -2874,14 +2856,15 @@ LRESULT CemuleDlg::OnKickIdle(WPARAM, LPARAM lIdleCount)
 {
 	LRESULT lResult = 0;
 
-	if (m_pSplashWnd) {
-		if (::GetTickCount() >= m_dwSplashTime + (DWORD)SEC2MS(2.5)) {
-			// timeout expired, destroy the splash window
-			DestroySplash();
+	// Splash is normally destroyed at the end of OnInitDialog. This block stays only as a
+	// safety net in case OnInitDialog returned early without dismissing it. The timeout is
+	// long so it never preempts the explicit destroy in normal startup.
+	if (theApp.m_pSplashWnd) {
+		if (::GetTickCount() >= theApp.GetSplashTime() + (DWORD)SEC2MS(30)) {
+			theApp.DestroySplash();
 			UpdateWindow();
 		} else {
-			// check again later...
-			lResult = 1;
+			lResult = 1; // check again later
 		}
 	}
 
@@ -3007,7 +2990,7 @@ BOOL CemuleDlg::PreTranslateMessage(MSG *pMsg)
 {
 	BOOL bResult = CTrayDialog::PreTranslateMessage(pMsg);
 
-	if (m_pSplashWnd && m_pSplashWnd->m_hWnd != NULL)
+	if (theApp.m_pSplashWnd && theApp.m_pSplashWnd->m_hWnd != NULL)
 		switch (pMsg->message) {
 		case WM_SYSCOMMAND:
 			if (pMsg->wParam != SC_CLOSE)
@@ -3020,7 +3003,7 @@ BOOL CemuleDlg::PreTranslateMessage(MSG *pMsg)
 		case WM_NCLBUTTONDOWN:
 		case WM_NCRBUTTONDOWN:
 		case WM_NCMBUTTONDOWN:
-			DestroySplash();
+			theApp.DestroySplash();
 			UpdateWindow();
 			return bResult;
 		}

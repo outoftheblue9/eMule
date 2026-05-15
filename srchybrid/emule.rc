@@ -3759,6 +3759,25 @@ BEGIN
     IDS_NORESPONSE          "No Response"
 END
 
+STRINGTABLE
+BEGIN
+    IDS_SPLASH_INIT_NETWORK "Initializing network..."
+    IDS_SPLASH_INIT_KAD     "Loading Kademlia data..."
+    IDS_SPLASH_RUN_SELFTEST "Running self-test..."
+    IDS_SPLASH_LOAD_KNOWN   "Loading known files..."
+    IDS_SPLASH_LOAD_SERVERS "Loading server list..."
+    IDS_SPLASH_LOAD_SHARED  "Indexing shared files..."
+    IDS_SPLASH_INIT_CRYPTO  "Initializing cryptography..."
+    IDS_SPLASH_LOAD_DOWNLOADS "Loading download queue..."
+    IDS_SPLASH_LOAD_IPFILTER "Loading IP filter..."
+    IDS_SPLASH_BUILD_UI     "Building user interface..."
+    IDS_SPLASH_BUILD_TABS   "Creating dialog tabs..."
+    IDS_SPLASH_START_WEBUI  "Starting web server..."
+    IDS_SPLASH_START_HASH   "Starting hash thread..."
+    IDS_SPLASH_LOAD_SEARCHES "Loading saved searches..."
+    IDS_SPLASH_READY        "Ready."
+END
+
 #endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
 

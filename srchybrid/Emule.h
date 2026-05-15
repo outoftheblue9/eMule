@@ -51,6 +51,7 @@ class CUPnPImplWrapper;
 class CUploadDiskIOThread;
 class CPartFileWriteThread;
 class CPartFileAllocThread;
+class CSplashScreen;
 
 struct SLogItem;
 
@@ -96,6 +97,7 @@ public:
 	CUploadDiskIOThread	*m_pUploadDiskIOThread;
 	CPartFileWriteThread *m_pPartFileWriteThread;
 	CPartFileAllocThread *m_pPartFileAllocThread;
+	CSplashScreen		*m_pSplashWnd;
 
 
 	static const UINT	m_nVersionMjr;
@@ -204,6 +206,13 @@ public:
 	bool		DidWeAutoStart() const							{ return m_bAutoStart; }
 	void		ResetStandbyOff()								{ m_bStandbyOff = false; }
 
+	// Splash screen (lifetime spans CemuleApp::InitInstance through CemuleDlg::OnInitDialog)
+	void		ShowSplash();
+	void		DestroySplash();
+	void		SetSplashStatus(UINT nResID);
+	void		SetSplashStatus(LPCTSTR pszStatus);
+	DWORD		GetSplashTime() const							{ return m_dwSplashTime; }
+
 protected:
 	bool ProcessCommandline();
 	void SetTimeOnTransfer();
@@ -238,6 +247,7 @@ protected:
 private:
 	UINT		m_wTimerRes;
 	bool		m_bStandbyOff;
+	DWORD		m_dwSplashTime;
 };
 
 extern CemuleApp theApp;

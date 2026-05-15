@@ -1566,6 +1566,7 @@
 #define IDS_SPLASH_START_WEBUI          1622
 #define IDS_SPLASH_START_HASH           1623
 #define IDS_SPLASH_READY                1624
+#define IDS_SPLASH_LOAD_SEARCHES        1625
 #define IDC_ANIMATE1                    2000
 #define IDC_STATUS                      2001
 #define IDC_FILESTATUS                  2002
