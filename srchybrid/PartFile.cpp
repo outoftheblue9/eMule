@@ -1134,17 +1134,17 @@ EPartFileLoadResult CPartFile::LoadPartFile(LPCTSTR in_directory, LPCTSTR in_fil
 				CString strFileInfo(GetFilePath());
 				strFileInfo.AppendFormat(_T(" (%s)"), (LPCTSTR)GetFileName());
 				LogError(LOG_STATUSBAR, GetResString(IDS_ERR_REHASH), (LPCTSTR)strFileInfo);
-				// rehash
+				// Funnel the rehash through CSharedFileList's single drain worker
+				// instead of spawning one CAddFileThread per stale part file: at
+				// startup many .part files can have mismatched mtimes, and one
+				// thread each floods the main dialog message queue with progress
+				// posts (ERROR_NOT_ENOUGH_QUOTA) while wasting 1+ MB of stack per
+				// thread that immediately parks on theApp.hashing_mut.
 				SetStatus(PS_WAITINGFORHASH);
-				CAddFileThread *addfilethread = static_cast<CAddFileThread*>(AfxBeginThread(RUNTIME_CLASS(CAddFileThread), THREAD_PRIORITY_BELOW_NORMAL, 0, CREATE_SUSPENDED));
-				if (addfilethread) {
-					SetFileOp(PFOP_HASHING);
-					addfilethread->SetValues(0, GetPath(), m_hpartfile.GetFileName(), _T(""), this);
-					SetFileOpProgress(0);
-					SetStatus(PS_HASHING);
-					addfilethread->ResumeThread();
-				} else
-					SetStatus(PS_ERROR);
+				SetFileOp(PFOP_HASHING);
+				SetFileOpProgress(0);
+				SetStatus(PS_HASHING);
+				theApp.sharedfiles->QueuePartFileRehash(this, GetPath(), m_hpartfile.GetFileName());
 			}
 		}
 	} catch (CFileException *ex) {

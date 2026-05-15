@@ -289,6 +289,7 @@ IMPLEMENT_DYNCREATE(CAddFileThread, CWinThread)
 CAddFileThread::CAddFileThread()
 	: m_pOwner()
 	, m_partfile()
+	, m_bDrainPartFileQueue(false)
 {
 }
 
@@ -403,95 +404,189 @@ BOOL CAddFileThread::InitInstance()
 
 int CAddFileThread::Run()
 {
-	DbgSetThreadName(m_partfile && m_partfile->GetFileOp() == PFOP_IMPORTPARTS ? "ImportingParts %s" : "Hashing %s", (LPCTSTR)m_strFilename);
-	if (!(m_pOwner || m_partfile) || m_strFilename.IsEmpty() || theApp.IsClosing())
-		return 0;
+	DbgSetThreadName(m_bDrainPartFileQueue ? "PartFileRehashWorker"
+		: (m_partfile && m_partfile->GetFileOp() == PFOP_IMPORTPARTS ? "ImportingParts %s" : "Hashing %s"),
+		(LPCTSTR)m_strFilename);
 
 	(void)::CoInitialize(NULL);
 
-	if (m_partfile && m_partfile->GetFileOp() == PFOP_IMPORTPARTS) {
-		ImportParts();
-		::CoUninitialize();
-		return 0;
+	if (!m_bDrainPartFileQueue) {
+		if (!(m_pOwner || m_partfile) || m_strFilename.IsEmpty() || theApp.IsClosing()) {
+			::CoUninitialize();
+			return 0;
+		}
+		if (m_partfile && m_partfile->GetFileOp() == PFOP_IMPORTPARTS) {
+			ImportParts();
+			::CoUninitialize();
+			return 0;
+		}
 	}
 
-	// Locking this hashing thread is needed because we may create a few of those threads
-	// at startup when rehashing potentially corrupted downloading part files.
-	// If all those hash threads would run concurrently, the I/O system would be under
-	// very heavy load and slowly progressing
-	CSingleLock hashingLock(&theApp.hashing_mut, TRUE); // hash only one file at a time
+	for (;;) {
+		if (theApp.IsClosing())
+			break;
 
-	TCHAR strFilePath[MAX_PATH];
-	_tmakepathlimit(strFilePath, NULL, m_strDirectory, m_strFilename, NULL);
-	if (m_partfile)
-		Log(_T("%s \"%s\" \"%s\""), (LPCTSTR)GetResString(IDS_HASHINGFILE), (LPCTSTR)m_partfile->GetFileName(), strFilePath);
-	else
-		Log(_T("%s \"%s\""), (LPCTSTR)GetResString(IDS_HASHINGFILE), strFilePath);
+		if (m_bDrainPartFileQueue) {
+			SPartFileRehashJob *job = theApp.sharedfiles
+				? theApp.sharedfiles->DequeuePartFileRehashJob() : NULL;
+			if (!job)
+				break;
+			m_pOwner = NULL;
+			m_partfile = job->pPartFile;
+			m_strDirectory = job->strDirectory;
+			m_strFilename = job->strFilename;
+			m_strSharedDir.Empty();
+			delete job;
+			if (!m_partfile || m_strFilename.IsEmpty())
+				continue;
+			DbgSetThreadName("Hashing %s", (LPCTSTR)m_strFilename);
+		}
 
-	// Recovery: if this is a part file rehash and the disk file is smaller than
-	// the expected final size (e.g. PartFileAllocThread was interrupted), extend
-	// it to the full expected size with zeros before hashing. Parts covering the
-	// zero-filled region will fail their hash check in PartFileHashFinished and
-	// be added back to the gap list so the download resumes correctly.
-	// We intentionally do NOT restore the mtime here: CreateFromFile will
-	// capture the new mtime and SavePartFile will persist it, preventing a
-	// spurious rehash at the next startup.
-	if (m_partfile && !theApp.IsClosing()) {
-		const uint64 uExpected = (uint64)m_partfile->GetFileSize();
-		if (uExpected > 0) {
-			HANDLE hExt = ::CreateFile(strFilePath, GENERIC_WRITE,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-				NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
-			if (hExt != INVALID_HANDLE_VALUE) {
-				LARGE_INTEGER liDisk{};
-				if (::GetFileSizeEx(hExt, &liDisk) && (uint64)liDisk.QuadPart < uExpected) {
-					LogWarning(_T("Part file \"%s\" is %I64u bytes on disk but expected %I64u — extending for rehash"),
-						(LPCTSTR)m_partfile->GetFileName(), (uint64)liDisk.QuadPart, uExpected);
-					LARGE_INTEGER liNew;
-					liNew.QuadPart = (LONGLONG)uExpected;
-					if (::SetFilePointerEx(hExt, liNew, NULL, FILE_BEGIN) && ::SetEndOfFile(hExt)) {
-						LARGE_INTEGER liLast;
-						liLast.QuadPart = (LONGLONG)(uExpected - 1);
-						if (::SetFilePointerEx(hExt, liLast, NULL, FILE_BEGIN)) {
-							BYTE zero = 0;
-							DWORD dw = 0;
-							::WriteFile(hExt, &zero, 1, &dw, NULL);
+		// Locking this hashing thread is needed because we may create a few of those threads
+		// at startup when rehashing potentially corrupted downloading part files.
+		// If all those hash threads would run concurrently, the I/O system would be under
+		// very heavy load and slowly progressing
+		CSingleLock hashingLock(&theApp.hashing_mut, TRUE); // hash only one file at a time
+
+		TCHAR strFilePath[MAX_PATH];
+		_tmakepathlimit(strFilePath, NULL, m_strDirectory, m_strFilename, NULL);
+		if (m_partfile)
+			Log(_T("%s \"%s\" \"%s\""), (LPCTSTR)GetResString(IDS_HASHINGFILE), (LPCTSTR)m_partfile->GetFileName(), strFilePath);
+		else
+			Log(_T("%s \"%s\""), (LPCTSTR)GetResString(IDS_HASHINGFILE), strFilePath);
+
+		// Recovery: if this is a part file rehash and the disk file is smaller than
+		// the expected final size (e.g. PartFileAllocThread was interrupted), extend
+		// it to the full expected size with zeros before hashing. Parts covering the
+		// zero-filled region will fail their hash check in PartFileHashFinished and
+		// be added back to the gap list so the download resumes correctly.
+		// We intentionally do NOT restore the mtime here: CreateFromFile will
+		// capture the new mtime and SavePartFile will persist it, preventing a
+		// spurious rehash at the next startup.
+		if (m_partfile && !theApp.IsClosing()) {
+			const uint64 uExpected = (uint64)m_partfile->GetFileSize();
+			if (uExpected > 0) {
+				HANDLE hExt = ::CreateFile(strFilePath, GENERIC_WRITE,
+					FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+					NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+				if (hExt != INVALID_HANDLE_VALUE) {
+					LARGE_INTEGER liDisk{};
+					if (::GetFileSizeEx(hExt, &liDisk) && (uint64)liDisk.QuadPart < uExpected) {
+						LogWarning(_T("Part file \"%s\" is %I64u bytes on disk but expected %I64u — extending for rehash"),
+							(LPCTSTR)m_partfile->GetFileName(), (uint64)liDisk.QuadPart, uExpected);
+						LARGE_INTEGER liNew;
+						liNew.QuadPart = (LONGLONG)uExpected;
+						if (::SetFilePointerEx(hExt, liNew, NULL, FILE_BEGIN) && ::SetEndOfFile(hExt)) {
+							LARGE_INTEGER liLast;
+							liLast.QuadPart = (LONGLONG)(uExpected - 1);
+							if (::SetFilePointerEx(hExt, liLast, NULL, FILE_BEGIN)) {
+								BYTE zero = 0;
+								DWORD dw = 0;
+								::WriteFile(hExt, &zero, 1, &dw, NULL);
+							}
 						}
 					}
+					::CloseHandle(hExt);
 				}
-				::CloseHandle(hExt);
 			}
 		}
-	}
 
-	if (!theApp.IsClosing()) {
-		CKnownFile *newKnown = new CKnownFile();
-		if (newKnown->CreateFromFile(m_strDirectory, m_strFilename, m_partfile)) { // SLUGFILLER: SafeHash - in case of shutdown while still hashing
-			newKnown->SetSharedDirectory(m_strSharedDir);
-			if (m_partfile && m_partfile->GetFileOp() == PFOP_HASHING)
-				m_partfile->SetFileOp(PFOP_NONE);
-			if (!theApp.emuledlg->PostMessage(TM_FINISHEDHASHING, (m_pOwner ? 0 : (WPARAM)m_partfile), (LPARAM)newKnown))
+		if (!theApp.IsClosing()) {
+			CKnownFile *newKnown = new CKnownFile();
+			if (newKnown->CreateFromFile(m_strDirectory, m_strFilename, m_partfile)) { // SLUGFILLER: SafeHash - in case of shutdown while still hashing
+				newKnown->SetSharedDirectory(m_strSharedDir);
+				if (m_partfile && m_partfile->GetFileOp() == PFOP_HASHING)
+					m_partfile->SetFileOp(PFOP_NONE);
+				if (!theApp.emuledlg->PostMessage(TM_FINISHEDHASHING, (m_pOwner ? 0 : (WPARAM)m_partfile), (LPARAM)newKnown))
+					delete newKnown;
+			} else {
+				if (m_partfile && m_partfile->GetFileOp() == PFOP_HASHING)
+					m_partfile->SetFileOp(PFOP_NONE);
+
+				// SLUGFILLER: SafeHash - inform main program of hash failure
+				if (m_pOwner) {
+					UnknownFile_Struct *hashed = new UnknownFile_Struct;
+					hashed->strDirectory = m_strDirectory;
+					hashed->strName = m_strFilename;
+					if (!theApp.emuledlg->PostMessage(TM_HASHFAILED, 0, (LPARAM)hashed))
+						delete hashed;
+				}
+				// SLUGFILLER: SafeHash
 				delete newKnown;
-		} else {
-			if (m_partfile && m_partfile->GetFileOp() == PFOP_HASHING)
-				m_partfile->SetFileOp(PFOP_NONE);
-
-			// SLUGFILLER: SafeHash - inform main program of hash failure
-			if (m_pOwner) {
-				UnknownFile_Struct *hashed = new UnknownFile_Struct;
-				hashed->strDirectory = m_strDirectory;
-				hashed->strName = m_strFilename;
-				if (!theApp.emuledlg->PostMessage(TM_HASHFAILED, 0, (LPARAM)hashed))
-					delete hashed;
 			}
-			// SLUGFILLER: SafeHash
-			delete newKnown;
 		}
+
+		hashingLock.Unlock();
+
+		if (!m_bDrainPartFileQueue)
+			break;
 	}
 
-	hashingLock.Unlock();
 	::CoUninitialize();
 	return 0;
+}
+
+void CSharedFileList::QueuePartFileRehash(CPartFile *pPartFile, const CString &strDirectory, const CString &strFilename)
+{
+	if (!pPartFile || strFilename.IsEmpty())
+		return;
+	SPartFileRehashJob *job = new SPartFileRehashJob;
+	job->pPartFile = pPartFile;
+	job->strDirectory = strDirectory;
+	job->strFilename = strFilename;
+
+	CSingleLock lk(&m_partFileRehashLock, TRUE);
+	m_partFileRehashJobs.AddTail(job);
+	// Intentionally do NOT spawn the drain worker here. LoadPartFile runs
+	// during CemuleDlg::StartupTimer state 4 (downloadqueue Init), while state
+	// 5 then synchronously loads the saved-search list inside the same dialog
+	// timer callback. If the worker starts posting TM_FILEOPPROGRESS while
+	// main thread is busy in LoadSearches and not pumping, the main thread
+	// message queue saturates (PostMessage -> ERROR_NOT_ENOUGH_QUOTA). The
+	// startup state machine calls StartPartFileRehash() once it finishes.
+}
+
+void CSharedFileList::StartPartFileRehash()
+{
+	bool needSpawn;
+	{
+		CSingleLock lk(&m_partFileRehashLock, TRUE);
+		if (m_partFileRehashJobs.IsEmpty() || m_partFileRehashWorkerActive)
+			return;
+		needSpawn = true;
+		m_partFileRehashWorkerActive = true;
+	}
+	if (!needSpawn)
+		return;
+
+	CAddFileThread *worker = static_cast<CAddFileThread*>(AfxBeginThread(
+		RUNTIME_CLASS(CAddFileThread), THREAD_PRIORITY_BELOW_NORMAL, 0, CREATE_SUSPENDED));
+	if (worker) {
+		worker->SetAsPartFileRehashDrain();
+		worker->ResumeThread();
+	} else {
+		// Could not start the drain worker; mark the queued part files as
+		// errored (matches the legacy per-thread spawn's AfxBeginThread-failure
+		// behavior) so callers don't wait forever for a hash that will never run.
+		CSingleLock lk(&m_partFileRehashLock, TRUE);
+		while (!m_partFileRehashJobs.IsEmpty()) {
+			SPartFileRehashJob *bad = m_partFileRehashJobs.RemoveHead();
+			if (bad->pPartFile)
+				bad->pPartFile->SetStatus(PS_ERROR);
+			delete bad;
+		}
+		m_partFileRehashWorkerActive = false;
+	}
+}
+
+SPartFileRehashJob* CSharedFileList::DequeuePartFileRehashJob()
+{
+	CSingleLock lk(&m_partFileRehashLock, TRUE);
+	if (m_partFileRehashJobs.IsEmpty()) {
+		m_partFileRehashWorkerActive = false;
+		return NULL;
+	}
+	return m_partFileRehashJobs.RemoveHead();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -519,6 +614,7 @@ CSharedFileList::CSharedFileList(CServerConnect *in_server)
 	, m_lastPublishED2K()
 	, m_lastPublishED2KFlag(true)
 	, bHaveSingleSharedFiles()
+	, m_partFileRehashWorkerActive(false)
 {
 	m_Files_map.InitHashTable(1031);
 	m_keywords = new CPublishKeywordList;
@@ -543,6 +639,11 @@ CSharedFileList::~CSharedFileList()
 	while (!currentlyhashing_list.IsEmpty())
 		delete currentlyhashing_list.RemoveHead();
 	// SLUGFILLER: SafeHash
+	{
+		CSingleLock lk(&m_partFileRehashLock, TRUE);
+		while (!m_partFileRehashJobs.IsEmpty())
+			delete m_partFileRehashJobs.RemoveHead();
+	}
 	delete m_keywords;
 
 #if defined(_BETA) || defined(_DEVBUILD)

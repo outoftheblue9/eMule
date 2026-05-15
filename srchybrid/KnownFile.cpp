@@ -384,6 +384,7 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 	// create hashset
 	CAICHRecoveryHashSet cAICHHashSet(this, m_nFileSize);
 	uint64 togo = (uint64)m_nFileSize;
+	WPARAM uLastPostedProgress = (WPARAM)-1;
 	UINT hashcount;
 	for (hashcount = 0; ; ++hashcount) {
 		UINT uSize = (UINT)min(togo, PARTSIZE);
@@ -441,7 +442,10 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 			if (reinterpret_cast<CKnownFile*>(pvProgressParam)->GetFileSize() == GetFileSize()) {
 				WPARAM uProgress = (WPARAM)(100 - (togo * 100) / (uint64)GetFileSize());
 				ASSERT(uProgress <= 100);
-				VERIFY(theApp.emuledlg->PostMessage(TM_FILEOPPROGRESS, uProgress, (LPARAM)pvProgressParam));
+				if (uProgress != uLastPostedProgress) {
+					uLastPostedProgress = uProgress;
+					VERIFY(theApp.emuledlg->PostMessage(TM_FILEOPPROGRESS, uProgress, (LPARAM)pvProgressParam));
+				}
 			}
 		}
 	}

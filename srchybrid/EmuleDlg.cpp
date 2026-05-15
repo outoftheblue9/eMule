@@ -740,6 +740,12 @@ void CALLBACK CemuleDlg::StartupTimer(HWND /*hwnd*/, UINT /*uiMsg*/, UINT_PTR /*
 			break;
 		default:
 			theApp.emuledlg->StopTimer();
+			// Synchronous startup (server list, downloadqueue Init, socket
+			// listen, saved-search load) is done. Now kick off the part-file
+			// rehash drain worker so its TM_FILEOPPROGRESS posts land while
+			// the main thread is actually pumping messages.
+			if (theApp.sharedfiles)
+				theApp.sharedfiles->StartPartFileRehash();
 		}
 	}
 	CATCH_DFLT_EXCEPTIONS(_T("CemuleDlg::StartupTimer"))
@@ -1681,8 +1687,13 @@ void CemuleDlg::OnClose()
 	sLock1.Lock(SEC2MS(2));
 
 	theApp.m_pUploadDiskIOThread->EndThread();
-	theApp.m_pPartFileAllocThread->EndThread();
-	theApp.m_pPartFileWriteThread->EndThread();
+	// NOTE: m_pPartFileAllocThread and m_pPartFileWriteThread are intentionally
+	// kept alive here. The downloadqueue dtor below runs FlushBuffer +
+	// SavePartFile on every CPartFile, and FlushBuffer routes file extensions
+	// through the alloc thread (and data writes through the write thread).
+	// Ending them too early forces the legacy synchronous SetLength fallback
+	// on the main thread for every part file with a pending extension. They
+	// are stopped immediately after the downloadqueue is deleted.
 
 	// saving data & stuff
 	theApp.emuledlg->preferenceswnd->m_wndSecurity.DeleteDDB();
@@ -1743,6 +1754,12 @@ void CemuleDlg::OnClose()
 	delete theApp.searchlist;				theApp.searchlist = NULL;
 	delete theApp.clientcredits;			theApp.clientcredits = NULL;	// CClientCreditsList::SaveList
 	delete theApp.downloadqueue;			theApp.downloadqueue = NULL;	// N * (CPartFile::FlushBuffer + CPartFile::SavePartFile)
+	// Part file flushes done — now safe to drain the alloc and write threads.
+	// Stopped here (not at the top of OnClose) so the per-CPartFile FlushBuffer
+	// above can route extensions / writes through them instead of hitting the
+	// synchronous SetLength fallback on the main thread.
+	theApp.m_pPartFileAllocThread->EndThread();
+	theApp.m_pPartFileWriteThread->EndThread();
 	delete theApp.uploadqueue;				theApp.uploadqueue = NULL;
 	delete theApp.clientlist;				theApp.clientlist = NULL;
 	delete theApp.friendlist;				theApp.friendlist = NULL;		// CFriendList::SaveList

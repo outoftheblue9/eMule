@@ -35,6 +35,13 @@ struct UnknownFile_Struct
 	CString strSharedDirectory;
 };
 
+struct SPartFileRehashJob
+{
+	CPartFile *pPartFile;
+	CString strDirectory;
+	CString strFilename;
+};
+
 class CSharedFileList
 {
 	friend class CSharedFilesCtrl;
@@ -97,6 +104,15 @@ public:
 	void	HashFailed(UnknownFile_Struct *hashed);	// SLUGFILLER: SafeHash
 	void	FileHashingFinished(CKnownFile *file);
 
+	// Single-worker queue used by CPartFile::LoadPartFile to rehash part files
+	// whose disk mtime no longer matches the saved one. Spawning one thread per
+	// stale part file at startup blows the main message queue (each thread posts
+	// progress to the dialog); funnel them through one worker that drains the
+	// queue serially under theApp.hashing_mut.
+	void	QueuePartFileRehash(CPartFile *pPartFile, const CString &strDirectory, const CString &strFilename);
+	void	StartPartFileRehash();
+	SPartFileRehashJob* DequeuePartFileRehashJob();
+
 	bool	GetPopularityRank(const CKnownFile *pFile, uint32 &rnOutSession, uint32 &rnOutTotal) const;
 
 	CCriticalSection m_mutWriteList; // don't acquire other locks while having this one in the main thread or make sure deadlocks are impossible
@@ -125,6 +141,9 @@ private:
 	CPublishKeywordList *m_keywords;
 	CTypedPtrList<CPtrList, UnknownFile_Struct*> waitingforhash_list;
 	CTypedPtrList<CPtrList, UnknownFile_Struct*> currentlyhashing_list;	// SLUGFILLER: SafeHash
+	CCriticalSection m_partFileRehashLock;
+	CTypedPtrList<CPtrList, SPartFileRehashJob*> m_partFileRehashJobs;
+	bool	m_partFileRehashWorkerActive;
 	CServerConnect	 *server;
 	CSharedFilesCtrl *output;
 	CStringList		 m_liSingleSharedFiles;
@@ -153,6 +172,7 @@ public:
 	void	SetValues(CSharedFileList *pOwner, LPCTSTR directory, LPCTSTR filename, LPCTSTR strSharedDir, CPartFile *partfile = NULL);
 	bool	ImportParts();
 	uint16	SetPartToImport(LPCTSTR import);
+	void	SetAsPartFileRehashDrain()		{ m_bDrainPartFileQueue = true; }
 private:
 	CSharedFileList	*m_pOwner;
 	CPartFile	*m_partfile;
@@ -161,4 +181,5 @@ private:
 	CString		m_strSharedDir;
 	CString		m_strImport;
 	CArray<uint16, uint16>	m_PartsToImport;
+	bool		m_bDrainPartFileQueue;
 };
