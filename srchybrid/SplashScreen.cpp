@@ -56,10 +56,33 @@ BOOL CSplashScreen::OnInitDialog()
 			wp.rcNormalPosition.right = wp.rcNormalPosition.left + bmp.bmWidth;
 			wp.rcNormalPosition.bottom = wp.rcNormalPosition.top + bmp.bmHeight;
 			SetWindowPlacement(&wp);
+
+			m_rcStatus.SetRect(0, bmp.bmHeight * 86 / 100, bmp.bmWidth, bmp.bmHeight * 98 / 100);
 		}
 	}
 
 	return TRUE;
+}
+
+void CSplashScreen::SetStatus(LPCTSTR pszStatus)
+{
+	if (!::IsWindow(m_hWnd))
+		return;
+	if (pszStatus == NULL)
+		pszStatus = _T("");
+	if (m_strStatus.Compare(pszStatus) == 0)
+		return;
+	m_strStatus = pszStatus;
+	if (!m_rcStatus.IsRectEmpty())
+		InvalidateRect(&m_rcStatus, FALSE);
+	else
+		Invalidate(FALSE);
+	UpdateWindow();
+}
+
+void CSplashScreen::SetStatus(UINT nResID)
+{
+	SetStatus(GetResString(nResID));
 }
 
 BOOL CSplashScreen::PreTranslateMessage(MSG *pMsg)
@@ -129,6 +152,25 @@ void CSplashScreen::OnPaint()
 			if (pOldFont)
 				dc.SelectObject(pOldFont);
 			font.DeleteObject();
+
+			if (!m_strStatus.IsEmpty() && !m_rcStatus.IsRectEmpty()) {
+				lf.lfHeight = 13;
+				lf.lfWeight = FW_NORMAL;
+				lf.lfItalic = TRUE;
+				lf.lfQuality = ANTIALIASED_QUALITY;
+				_tcscpy(lf.lfFaceName, _T("Arial"));
+				CFont fontStatus;
+				fontStatus.CreateFontIndirect(&lf);
+				CFont *pOldStatusFont = dc.SelectObject(&fontStatus);
+				const COLORREF crOld = dc.SetTextColor(RGB(64, 64, 64));
+				const int iOldBkMode = dc.SetBkMode(TRANSPARENT);
+				dc.DrawText(m_strStatus, &m_rcStatus, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+				dc.SetBkMode(iOldBkMode);
+				dc.SetTextColor(crOld);
+				if (pOldStatusFont)
+					dc.SelectObject(pOldStatusFont);
+				fontStatus.DeleteObject();
+			}
 		}
 	}
 }

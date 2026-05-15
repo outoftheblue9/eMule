@@ -1552,6 +1552,20 @@
 #define IDS_IMPORTPARTS                 1608
 #define IDS_IMPORTPARTS_STOP            1609
 #define IDS_SEARCH_HIGHLIGHT            1610
+#define IDS_SPLASH_INIT_NETWORK         1611
+#define IDS_SPLASH_INIT_KAD             1612
+#define IDS_SPLASH_RUN_SELFTEST         1613
+#define IDS_SPLASH_LOAD_KNOWN           1614
+#define IDS_SPLASH_LOAD_SERVERS         1615
+#define IDS_SPLASH_LOAD_SHARED          1616
+#define IDS_SPLASH_INIT_CRYPTO          1617
+#define IDS_SPLASH_LOAD_DOWNLOADS       1618
+#define IDS_SPLASH_LOAD_IPFILTER        1619
+#define IDS_SPLASH_BUILD_UI             1620
+#define IDS_SPLASH_BUILD_TABS           1621
+#define IDS_SPLASH_START_WEBUI          1622
+#define IDS_SPLASH_START_HASH           1623
+#define IDS_SPLASH_READY                1624
 #define IDC_ANIMATE1                    2000
 #define IDC_STATUS                      2001
 #define IDC_FILESTATUS                  2002
@@ -2376,6 +2390,6 @@
 #define _APS_NEXT_RESOURCE_VALUE        1568
 #define _APS_NEXT_COMMAND_VALUE         32773
 #define _APS_NEXT_CONTROL_VALUE         3040
-#define _APS_NEXT_SYMED_VALUE           1611
+#define _APS_NEXT_SYMED_VALUE           1625
 #endif
 #endif
