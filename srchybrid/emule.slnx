@@ -7,30 +7,41 @@
     <Platform Name="Win32" />
     <Platform Name="x64" />
   </Configurations>
-  <Project Path="../cryptopp/cryptlib.vcxproj" Id="c39f4b46-6e89-4074-902e-ca57073044d2">
+  <Project Path="../../cryptopp/cryptlib.vcxproj" Id="c39f4b46-6e89-4074-902e-ca57073044d2">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
-  <Project Path="../id3lib/libprj/id3lib.vcxproj" Id="4aacbf8d-b90f-41ad-a5be-d5e557c668e3">
+  <Project Path="../../id3lib/libprj/id3lib.vcxproj" Id="4aacbf8d-b90f-41ad-a5be-d5e557c668e3">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
-  <Project Path="../mbedtls/visualc/VS2017/mbedTLS.vcxproj" Id="46cf2d25-6a36-4189-b59c-e4815388e554">
+  <Project Path="../../mbedtls/visualc/VS2017/mbedTLS.vcxproj" Id="46cf2d25-6a36-4189-b59c-e4815388e554">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
-  <Project Path="../miniupnpc/msvc/miniupnpc.vcxproj" Id="d28ce435-cb33-4bae-8a52-c6ef915956f5">
+  <Project Path="../../miniupnp/miniupnpc/msvc/miniupnpc.vcxproj" Id="d28ce435-cb33-4bae-8a52-c6ef915956f5">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
-  <Project Path="../ResizableLib/ResizableLib.vcxproj" Id="86cec5cb-94de-4e3c-a1c6-0653d58c0625">
+  <Project Path="../../resizablelib/ResizableLib/ResizableLib.vcxproj" Id="c176053f-c799-4bf4-abfa-125a4192ceb9">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
-  <Project Path="../zlib/contrib/vstudio/vc/zlib.vcxproj" Id="745dec58-ebb3-47a9-a9b8-4c6627c01bf8">
+  <Project Path="../../zlib/contrib/vstudio/vc17/zlibvc.vcxproj" Id="8fd826f8-3739-44e6-8cc8-997122e53b8d">
     <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
   </Project>
   <Project Path="emule.vcxproj" Id="584ea69d-3443-4197-8994-364880fc1b9b">
-    <BuildDependency Project="../cryptopp/cryptlib.vcxproj" />
-    <BuildDependency Project="../id3lib/libprj/id3lib.vcxproj" />
-    <BuildDependency Project="../mbedtls/visualc/VS2017/mbedTLS.vcxproj" />
-    <BuildDependency Project="../miniupnpc/msvc/miniupnpc.vcxproj" />
-    <BuildDependency Project="../ResizableLib/ResizableLib.vcxproj" />
-    <BuildDependency Project="../zlib/contrib/vstudio/vc/zlib.vcxproj" />
+    <BuildDependency Project="../../cryptopp/cryptlib.vcxproj" />
+    <BuildDependency Project="../../id3lib/libprj/id3lib.vcxproj" />
+    <BuildDependency Project="../../mbedtls/visualc/VS2017/mbedTLS.vcxproj" />
+    <BuildDependency Project="../../miniupnp/miniupnpc/msvc/miniupnpc.vcxproj" />
+    <BuildDependency Project="../../resizablelib/ResizableLib/ResizableLib.vcxproj" />
+    <BuildDependency Project="../../zlib/contrib/vstudio/vc17/zlibvc.vcxproj" />
+  </Project>
+  <Project Path="tests/emule_tests.vcxproj" Id="a1b2c3d4-e5f6-4789-a012-3456789abcde">
+    <!--
+      Test DLL declares all 9 configs natively (mirrors emule.vcxproj) so no
+      config remapping is needed — solution Configuration|Platform flows
+      straight through. Compile settings are unconditional (always Debug-style)
+      inside the project, so the resulting DLL is identical regardless of
+      which solution config triggered the build.
+    -->
+    <BuildType Solution="_SpecialBootstrapNodes|*" Project="Debug" />
+    <BuildDependency Project="../../cryptopp/cryptlib.vcxproj" />
   </Project>
 </Solution>

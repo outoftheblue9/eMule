@@ -72,7 +72,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;..;..\id3lib\include;..\mbedtls\include;..\mbedtls\tf-psa-crypto\include;..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;..;..\..;..\..\miniupnp;..\..\resizablelib;..\..\id3lib\include;..\..\mbedtls\include;..\..\mbedtls\tf-psa-crypto\include;..\..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
       <AdditionalOptions Condition="'$(Platform)'!='ARM64'">/Zc:throwingNew</AdditionalOptions>
       <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/Zc:enumTypes /Zc:throwingNew</AdditionalOptions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -83,9 +83,11 @@
       <PreprocessorDefinitions Condition="'$(Platform)'!='ARM64'">XP_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <WarningLevel>EnableAllWarnings</WarningLevel>
+      <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</MultiProcessorCompilation>
+      <MinimalRebuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</MinimalRebuild>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ADSIId.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;..\cryptopp\$(Platform)\$(Configuration)\cryptlib.lib;..\id3lib\libprj\$(Platform)\$(Configuration)\id3lib.lib;..\mbedtls\visualc\vs2017\$(Platform)\$(Configuration)\mbedtls.lib;..\miniupnpc\msvc\$(Platform)\$(Configuration)\miniupnpc.lib;..\resizablelib\$(Platform)\$(Configuration)\resizablelib.lib;..\zlib\contrib\vstudio\vc\$(Platform)\$(Configuration)\zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ADSIId.lib;bcrypt.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions Condition="'$(Platform)'=='Win32'">/safeseh</AdditionalOptions>
       <DelayLoadDLLs>gdiplus.dll;msimg32.dll;oleacc.dll;ws2_32.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <IgnoreSpecificDefaultLibraries>mpr.lib;rasapi32.lib;secur32.lib;sensapi.lib;vfw32.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -102,7 +104,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;..;..\id3lib\include;..\mbedtls\include;..\mbedtls\tf-psa-crypto\include;..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;..;..\..;..\..\miniupnp;..\..\resizablelib;..\..\id3lib\include;..\..\mbedtls\include;..\..\mbedtls\tf-psa-crypto\include;..\..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
       <AdditionalOptions Condition="'$(Platform)'!='ARM64'">/Zc:throwingNew</AdditionalOptions>
       <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/Zc:enumTypes /Zc:throwingNew</AdditionalOptions>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -114,7 +116,7 @@
       <WarningLevel>EnableAllWarnings</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ADSIId.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;..\cryptopp\$(Platform)\$(Configuration)\cryptlib.lib;..\id3lib\libprj\$(Platform)\$(Configuration)\id3lib.lib;..\mbedtls\visualc\vs2017\$(Platform)\$(Configuration)\mbedtls.lib;..\miniupnpc\msvc\$(Platform)\$(Configuration)\miniupnpc.lib;..\resizablelib\$(Platform)\$(Configuration)\resizablelib.lib;..\zlib\contrib\vstudio\vc\$(Platform)\$(Configuration)\zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ADSIId.lib;bcrypt.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions Condition="'$(Platform)'=='Win32'">/safeseh</AdditionalOptions>
       <DelayLoadDLLs>gdiplus.dll;msimg32.dll;oleacc.dll;ws2_32.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <IgnoreSpecificDefaultLibraries>mpr.lib;rasapi32.lib;secur32.lib;sensapi.lib;vfw32.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -129,7 +131,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;..;..\id3lib\include;..\mbedtls\include;..\mbedtls\tf-psa-crypto\include;..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;..;..\..;..\..\miniupnp;..\..\resizablelib;..\..\id3lib\include;..\..\mbedtls\include;..\..\mbedtls\tf-psa-crypto\include;..\..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;</AdditionalIncludeDirectories>
       <AdditionalOptions Condition="'$(Platform)'!='ARM64'">/Zc:throwingNew</AdditionalOptions>
       <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/Zc:enumTypes /Zc:throwingNew</AdditionalOptions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -142,7 +144,7 @@
       <WarningLevel>EnableAllWarnings</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>ADSIId.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;..\cryptopp\$(Platform)\Debug\cryptlib.lib;..\id3lib\libprj\$(Platform)\Debug\id3lib.lib;..\mbedtls\visualc\vs2017\$(Platform)\Debug\mbedtls.lib;..\miniupnpc\msvc\$(Platform)\Debug\miniupnpc.lib;..\resizablelib\$(Platform)\Debug\resizablelib.lib;..\zlib\contrib\vstudio\vc\$(Platform)\Debug\zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ADSIId.lib;bcrypt.lib;crypt32.lib;delayimp.lib;iphlpapi.lib;version.lib;winmm.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions Condition="'$(Platform)'=='Win32'">/safeseh</AdditionalOptions>
       <DelayLoadDLLs>gdiplus.dll;msimg32.dll;oleacc.dll;ws2_32.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <IgnoreSpecificDefaultLibraries>mpr.lib;rasapi32.lib;secur32.lib;sensapi.lib;vfw32.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -306,6 +308,7 @@
     <ClCompile Include="PartFile.cpp" />
     <ClCompile Include="PartFileConvert.cpp" />
     <ClCompile Include="PartFileWriteThread.cpp" />
+    <ClCompile Include="PartFileAllocThread.cpp" />
     <ClCompile Include="PartFileWriteCoalesce.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -601,6 +604,7 @@
     <ClInclude Include="PartFile.h" />
     <ClInclude Include="PartFileConvert.h" />
     <ClInclude Include="PartFileWriteThread.h" />
+    <ClInclude Include="PartFileAllocThread.h" />
     <ClInclude Include="PartFileWriteCoalesce.h" />
     <ClInclude Include="PerfLog.h" />
     <ClInclude Include="Pinger.h" />
@@ -975,6 +979,38 @@
     <Text Include="..\docs\kademlia\changelog.txt" />
     <Text Include="..\docs\readme.txt" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\cryptopp\cryptlib.vcxproj">
+      <Project>{C39F4B46-6E89-4074-902E-CA57073044D2}</Project>
+      <Properties Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">Configuration=$(Configuration);Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\id3lib\libprj\id3lib.vcxproj">
+      <Project>{4AACBF8D-B90F-41AD-A5BE-D5E557C668E3}</Project>
+      <Properties Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">Configuration=$(Configuration);Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\mbedtls\visualc\vs2017\mbedtls.vcxproj">
+      <Project>{46CF2D25-6A36-4189-B59C-E4815388E554}</Project>
+      <Properties Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">Configuration=$(Configuration);Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\miniupnp\miniupnpc\msvc\miniupnpc.vcxproj">
+      <Project>{D28CE435-CB33-4BAE-8A52-C6EF915956F5}</Project>
+      <Properties Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">Configuration=$(Configuration);Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\resizablelib\ResizableLib\ResizableLib.vcxproj">
+      <Project>{C176053F-C799-4BF4-ABFA-125A4192CEB9}</Project>
+      <Properties Condition="'$(Configuration)'=='Debug' Or '$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug Static Unicode;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'=='Release'">Configuration=Release Static Unicode;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+    <ProjectReference Include="..\..\zlib\contrib\vstudio\vc17\zlibvc.vcxproj">
+      <Project>{8FD826F8-3739-44E6-8CC8-997122E53B8D}</Project>
+      <Properties Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Configuration=Debug;Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+      <Properties Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">Configuration=$(Configuration);Platform=$(Platform);PlatformToolset=v141_xp</Properties>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
@@ -984,4 +1020,16 @@
       <UserProperties RESOURCE_FILE="emule.rc" />
     </VisualStudio>
   </ProjectExtensions>
+  <Target Name="CopyZlibwapiDll" AfterTargets="Link">
+    <PropertyGroup>
+      <_ZlibPlatformDir Condition="'$(Platform)'=='Win32'">x86</_ZlibPlatformDir>
+      <_ZlibPlatformDir Condition="'$(Platform)'=='x64'">x64</_ZlibPlatformDir>
+      <_ZlibConfigDir Condition="'$(Configuration)'=='_SpecialBootstrapNodes'">Debug</_ZlibConfigDir>
+      <_ZlibConfigDir Condition="'$(Configuration)'!='_SpecialBootstrapNodes'">$(Configuration)</_ZlibConfigDir>
+      <_ZlibDllPath>$(MSBuildThisFileDirectory)..\..\zlib\contrib\vstudio\vc17\$(_ZlibPlatformDir)\ZlibDll$(_ZlibConfigDir)\zlibwapi.dll</_ZlibDllPath>
+      <_ZlibPdbPath>$(MSBuildThisFileDirectory)..\..\zlib\contrib\vstudio\vc17\$(_ZlibPlatformDir)\ZlibDll$(_ZlibConfigDir)\zlibwapi.pdb</_ZlibPdbPath>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_ZlibDllPath)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(_ZlibDllPath)')" />
+    <Copy SourceFiles="$(_ZlibPdbPath)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(_ZlibPdbPath)')" />
+  </Target>
 </Project>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared compile config for emule.vcxproj and srchybrid/tests/emule_tests.vcxproj.
+
+  Holds AdditionalIncludeDirectories and the platform-invariant PreprocessorDefinitions
+  so a .cpp file referenced by both projects sees the same world.
+
+  All paths anchored to $(MSBuildThisFileDirectory) (= srchybrid\) so the same set
+  of include directories resolves identically regardless of which project imports
+  this file.
+
+  Imported only by emule_tests.vcxproj in the first pass — emule.vcxproj is left
+  untouched to avoid any risk of changing main-app build output. A follow-up PR
+  can hoist these values out of emule.vcxproj once the test harness has shipped.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory);$(MSBuildThisFileDirectory)..;$(MSBuildThisFileDirectory)..\..;$(MSBuildThisFileDirectory)..\..\miniupnp;$(MSBuildThisFileDirectory)..\..\resizablelib;$(MSBuildThisFileDirectory)..\..\id3lib\include;$(MSBuildThisFileDirectory)..\..\mbedtls\include;$(MSBuildThisFileDirectory)..\..\mbedtls\tf-psa-crypto\include;$(MSBuildThisFileDirectory)..\..\mbedtls\tf-psa-crypto\drivers\builtin\include;$(VC_ATLMFC_SourcePath);$(UniversalCRTSdkDir)Include\10.0.26100.0\um\;$(UniversalCRTSdkDir)Include\10.0.26100.0\shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>ID3LIB_LINKOPTION=1;MINIUPNP_STATICLIB;SUPPORT_LARGE_FILES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Platform)'!='ARM64'">XP_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>
