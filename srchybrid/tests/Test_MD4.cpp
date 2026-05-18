@@ -62,6 +62,25 @@ namespace emule_tests
 			AssertDigestEquals(md4.GetHash(), "d79e1c308aa5bbcdeea8ed63df412da9");
 		}
 
+		TEST_METHOD(MixedCaseAlphabetAndDigits)
+		{
+			const char szInput[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+			CMD4 md4;
+			md4.Add(szInput, sizeof(szInput) - 1);
+			md4.Finish();
+			AssertDigestEquals(md4.GetHash(), "043f8582f241db351ce627e153e7f0e4");
+		}
+
+		// 80 bytes — crosses 64-byte block boundary, validates multi-block path.
+		TEST_METHOD(EightRepeatsOfDigits)
+		{
+			const char szInput[] = "12345678901234567890123456789012345678901234567890123456789012345678901234567890";
+			CMD4 md4;
+			md4.Add(szInput, sizeof(szInput) - 1);
+			md4.Finish();
+			AssertDigestEquals(md4.GetHash(), "e33b4ddc9c38f2199c3e7b164fcc0536");
+		}
+
 		TEST_METHOD(IncrementalEqualsOneShot)
 		{
 			const char szInput[] = "The quick brown fox jumps over the lazy dog";
