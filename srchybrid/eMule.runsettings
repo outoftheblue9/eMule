@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solution-wide test run settings for eMule.
+
+  Enables the TRX logger so every Test Explorer run writes
+  <sln-dir>\TestResults\<user>_<machine>_<timestamp>.trx — consumed by
+  the vs-dte skill's "TestResults" action for programmatic outcomes.
+
+  Wire-up (one time):
+    Test -> Configure Run Settings -> Select Solution Wide runsettings file
+    -> pick this file.
+  Or set TestExplorer.AutoDetectRunSettingsFiles = true.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <ResultsDirectory>.\TestResults</ResultsDirectory>
+  </RunConfiguration>
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="trx" enabled="True" />
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>
