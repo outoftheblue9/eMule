@@ -155,7 +155,6 @@ protected:
 	bool	LoadTagsFromFile(CFileDataIO &file);
 	bool	LoadDateFromFile(CFileDataIO &file);
 	static void	CreateHash(CFile *pFile, uint64 Length, uchar *pucHash, CAICHHashTree *pShaHashOut = NULL);
-	static bool	CreateHash(FILE *fp, uint64 uSize, uchar *pucHash, CAICHHashTree *pShaHashOut = NULL);
 
 private:
 	static CBarShader s_ShareStatusBar;

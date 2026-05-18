@@ -19,6 +19,11 @@
 #include <io.h>
 #include <share.h>
 #include <sys/stat.h>
+#include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <exception>
 #ifdef _DEBUG
 #include "DebugHelpers.h"
 #endif
@@ -40,6 +45,7 @@
 #include "shahashset.h"
 #include "Log.h"
 #include "MD4.h"
+#include "HashWorker.h"
 #include "Collection.h"
 #include "emuledlg.h"
 #include "SharedFilesWnd.h"
@@ -356,26 +362,35 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 	}
 	strFilePath.ReleaseBuffer();
 	SetFilePath(strFilePath);
-	FILE *file = _tfsopen(strFilePath, _T("rbS"), _SH_DENYNO); // can not use _SH_DENYWR because we may access a completing part file
-	if (!file) {
-		LogError(GetResString(IDS_ERR_FILEOPEN) + _T(" - %s"), (LPCTSTR)strFilePath, _T(""), _tcserror(errno));
+	// Open via CFile with osSequentialScan (FILE_FLAG_SEQUENTIAL_SCAN). Skips the
+	// CRT/CStdioFile buffer layer so reads go straight from ReadFile into our
+	// 256 KB hash buffer (one fewer memcpy per chunk).
+	CFile file;
+	CFileException openEx;
+	// can not use shareDenyWrite because we may access a completing part file
+	if (!file.Open(strFilePath, CFile::modeRead | CFile::shareDenyNone | CFile::osSequentialScan, &openEx)) {
+		TCHAR szErr[256];
+		openEx.GetErrorMessage(szErr, _countof(szErr));
+		LogError(GetResString(IDS_ERR_FILEOPEN) + _T(" - %s"), (LPCTSTR)strFilePath, _T(""), szErr);
 		return false;
 	}
 
 	// set file size. Zero size is valid for .part files
-	__int64 llFileSize = _filelengthi64(_fileno(file));
+	__int64 llFileSize = -1;
+	try {
+		llFileSize = (__int64)file.GetLength();
+	} catch (CFileException *ex) {
+		ex->Delete();
+	}
 	if ((uint64)llFileSize > MAX_EMULE_FILE_SIZE) {
 		if (llFileSize <= 0)
 			LogError(_T("Failed to hash file \"%s\" - %s"), (LPCTSTR)strFilePath, _tcserror(errno));
 		else
 			LogError(_T("Skipped hashing file \"%s\" - File size exceeds limit."), (LPCTSTR)strFilePath);
-		fclose(file);
+		file.Close();
 		return false; // not supported by network
 	}
 	SetFileSize((EMFileSize)(uint64)llFileSize);
-
-	// we are reading the file data later in 8K blocks, adjust the internal file stream buffer accordingly
-	::setvbuf(file, NULL, _IOFBF, 1024 * 8 * 2);
 
 	m_AvailPartFrequency.SetSize(GetPartCount());
 	if (GetPartCount())
@@ -396,15 +411,20 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 			pBlockAICHHashTree = NULL; // SHA hash tree doesn't take hash of zero-sized data
 
 		uchar *newhash = new uchar[MDX_DIGEST_SIZE];
-		if (!CreateHash(file, uSize, newhash, pBlockAICHHashTree)) {
-			LogError(_T("Failed to hash file \"%s\" - %s"), (LPCTSTR)strFilePath, _tcserror(errno));
-			fclose(file);
+		try {
+			CreateHash(&file, uSize, newhash, pBlockAICHHashTree);
+		} catch (CFileException *ex) {
+			TCHAR szErr[256];
+			ex->GetErrorMessage(szErr, _countof(szErr));
+			ex->Delete();
+			LogError(_T("Failed to hash file \"%s\" - %s"), (LPCTSTR)strFilePath, szErr);
+			file.Close();
 			delete[] newhash;
 			return false;
 		}
 
 		if (theApp.IsClosing()) { // in case of shutdown while still hashing
-			fclose(file);
+			file.Close();
 			delete[] newhash;
 			return false;
 		}
@@ -424,22 +444,24 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 
 		if (theApp.IsClosing()) {
 			LogError(_T("Hashing cancelled (closing eMule), file \"%s\""), (LPCTSTR)strFilePath);
-			fclose(file);
+			file.Close();
 			return false;
 		}
 		if (pvProgressParam) {
 			if (reinterpret_cast<CPartFile*>(pvProgressParam)->IsKindOf(RUNTIME_CLASS(CPartFile))
 				&& reinterpret_cast<CPartFile*>(pvProgressParam)->IsDeleting()) {
 				LogError(_T("Hashing cancelled (pending delete), file \"%s\""), (LPCTSTR)strFilePath);
-				fclose(file);
+				file.Close();
 				return false;
 			}
 
 			ASSERT(reinterpret_cast<CKnownFile*>(pvProgressParam)->IsKindOf(RUNTIME_CLASS(CKnownFile)));
-			// Size can legitimately differ when a part file whose alloc was
-			// interrupted mid-extension is rehashed at startup; skip progress
-			// in that case rather than asserting.
-			if (reinterpret_cast<CKnownFile*>(pvProgressParam)->GetFileSize() == GetFileSize()) {
+			// Progress is computed against bytes actually being hashed (this
+			// CKnownFile's size, set from on-disk length above). Partial part
+			// files rehashed at startup can legitimately have a disk size
+			// smaller than the partfile's expected final size — using disk
+			// size keeps the UI bar advancing instead of going silent.
+			if ((uint64)GetFileSize() > 0) {
 				WPARAM uProgress = (WPARAM)(100 - (togo * 100) / (uint64)GetFileSize());
 				ASSERT(uProgress <= 100);
 				if (uProgress != uLastPostedProgress) {
@@ -471,20 +493,20 @@ bool CKnownFile::CreateFromFile(LPCTSTR in_directory, LPCTSTR in_filename, LPVOI
 
 	if (pvProgressParam && !theApp.IsClosing()) {
 		ASSERT(reinterpret_cast<CKnownFile*>(pvProgressParam)->IsKindOf(RUNTIME_CLASS(CKnownFile)));
-		ASSERT(reinterpret_cast<CKnownFile*>(pvProgressParam)->GetFileSize() == GetFileSize());
+		// Size mismatch is normal for startup rehash of a partial part file —
+		// no assert.
 		WPARAM uProgress = 100;
-		ASSERT(uProgress <= 100);
 		VERIFY(theApp.emuledlg->PostMessage(TM_FILEOPPROGRESS, uProgress, (LPARAM)pvProgressParam));
 	}
 
 	// set last write date
 	struct _stat64 st;
-	if (statUTC((HANDLE)_get_osfhandle(_fileno(file)), st) == 0) {
+	if (statUTC(file.m_hFile, st) == 0) {
 		m_tUtcLastModified = (time_t)st.st_mtime;
 		AdjustNTFSDaylightFileTime(m_tUtcLastModified, (LPCTSTR)strFilePath);
 	}
 
-	fclose(file);
+	file.Close();
 
 	// Add file tags
 	UpdateMetaDataTags();
@@ -498,13 +520,18 @@ bool CKnownFile::CreateAICHHashSetOnly()
 {
 	ASSERT(!IsPartFile());
 
-	FILE *file = _tfsopen(GetFilePath(), _T("rbS"), _SH_DENYNO); // can not use _SH_DENYWR because we may access a completing part file
-	if (!file) {
-		LogError(GetResString(IDS_ERR_FILEOPEN) + _T(" - %s"), (LPCTSTR)GetFilePath(), _T(""), _tcserror(errno));
+	// Open via CFile with osSequentialScan (FILE_FLAG_SEQUENTIAL_SCAN). Skips
+	// the CRT/CStdioFile buffer layer; reads land straight in the 256 KB hash
+	// buffer used by CreateHash.
+	CFile file;
+	CFileException openEx;
+	// can not use shareDenyWrite because we may access a completing part file
+	if (!file.Open(GetFilePath(), CFile::modeRead | CFile::shareDenyNone | CFile::osSequentialScan, &openEx)) {
+		TCHAR szErr[256];
+		openEx.GetErrorMessage(szErr, _countof(szErr));
+		LogError(GetResString(IDS_ERR_FILEOPEN) + _T(" - %s"), (LPCTSTR)GetFilePath(), _T(""), szErr);
 		return false;
 	}
-	// we are reading the file data later in 8K blocks, adjust the internal file stream buffer accordingly
-	::setvbuf(file, NULL, _IOFBF, 1024 * 8 * 2);
 
 	// create aich hashset
 	CAICHRecoveryHashSet cAICHHashSet(this, m_nFileSize);
@@ -513,18 +540,23 @@ bool CKnownFile::CreateAICHHashSetOnly()
 		uint64 uSize = min(togo, PARTSIZE);
 		CAICHHashTree *pBlockAICHHashTree = cAICHHashSet.m_pHashTree.FindHash(hashcount * PARTSIZE, uSize);
 		ASSERT(pBlockAICHHashTree != NULL);
-		if (!CreateHash(file, uSize, NULL, pBlockAICHHashTree)) {
-			LogError(_T("Failed to hash file \"%s\" - %s"), (LPCTSTR)GetFilePath(), _tcserror(errno));
-			fclose(file);
+		try {
+			CreateHash(&file, uSize, NULL, pBlockAICHHashTree);
+		} catch (CFileException *ex) {
+			TCHAR szErr[256];
+			ex->GetErrorMessage(szErr, _countof(szErr));
+			ex->Delete();
+			LogError(_T("Failed to hash file \"%s\" - %s"), (LPCTSTR)GetFilePath(), szErr);
+			file.Close();
 			return false;
 		}
 		if (theApp.IsClosing()) { // in case of shutdown while still hashing
-			fclose(file);
+			file.Close();
 			return false;
 		}
 		togo -= uSize;
 	}
-	fclose(file);
+	file.Close();
 
 	cAICHHashSet.ReCalculateHash(false);
 	if (cAICHHashSet.VerifyHashTree(true)) {
@@ -925,42 +957,166 @@ bool CKnownFile::WriteToFile(CFileDataIO &file)
 	return true;
 }
 
+// 256 KB hash buffer: 32x fewer Read() round-trips than the legacy 8 KB
+// buffer while still fitting comfortably in L2 cache. Multiple of 64 so
+// every chunk except possibly the final one is MD4/SHA-1 block aligned.
+static constexpr size_t kHashBufSize = 64 * 4096; // 256 KB
+
+namespace {
+// Double-buffered producer/consumer over a CFile. While the consumer hashes
+// one buffer the producer thread refills the other, so the hash core and the
+// disk can run in parallel instead of strictly serially. Exceptions thrown by
+// CFile::Read are captured and rethrown on the consumer thread.
+class CHashReader
+{
+public:
+	CHashReader(CFile *pFile, uint64 totalBytes)
+		: m_pFile(pFile), m_remaining(totalBytes)
+	{
+		m_buf[0].reset(new uchar[kHashBufSize]);
+		m_buf[1].reset(new uchar[kHashBufSize]);
+		if (m_remaining)
+			m_thread = std::thread(&CHashReader::ProducerLoop, this);
+	}
+	~CHashReader()
+	{
+		{
+			std::lock_guard<std::mutex> lk(m_mtx);
+			m_cancel = true;
+		}
+		m_cv.notify_all();
+		if (m_thread.joinable())
+			m_thread.join();
+	}
+	// Block until next filled buffer ready; rethrow any producer exception.
+	// Returns nullptr at EOF.
+	uchar *Acquire(UINT &outLen)
+	{
+		std::unique_lock<std::mutex> lk(m_mtx);
+		m_cv.wait(lk, [&] { return m_filled[m_consumer] || m_done || m_excPtr; });
+		if (m_excPtr)
+			std::rethrow_exception(m_excPtr);
+		if (!m_filled[m_consumer])
+			return nullptr;
+		outLen = m_len[m_consumer];
+		return m_buf[m_consumer].get();
+	}
+	void Release()
+	{
+		{
+			std::lock_guard<std::mutex> lk(m_mtx);
+			m_filled[m_consumer] = false;
+			m_consumer ^= 1;
+		}
+		m_cv.notify_all();
+	}
+private:
+	void ProducerLoop()
+	{
+		int prod = 0;
+		try {
+			while (m_remaining) {
+				{
+					std::unique_lock<std::mutex> lk(m_mtx);
+					m_cv.wait(lk, [&] { return !m_filled[prod] || m_cancel; });
+					if (m_cancel)
+						return;
+				}
+				UINT toRead = (UINT)min(m_remaining, (uint64)kHashBufSize);
+				VERIFY(m_pFile->Read(m_buf[prod].get(), toRead) == toRead);
+				m_remaining -= toRead;
+				{
+					std::lock_guard<std::mutex> lk(m_mtx);
+					m_len[prod] = toRead;
+					m_filled[prod] = true;
+				}
+				m_cv.notify_all();
+				prod ^= 1;
+			}
+			{
+				std::lock_guard<std::mutex> lk(m_mtx);
+				m_done = true;
+			}
+			m_cv.notify_all();
+		} catch (...) {
+			std::lock_guard<std::mutex> lk(m_mtx);
+			m_excPtr = std::current_exception();
+			m_cv.notify_all();
+		}
+	}
+
+	CFile *m_pFile;
+	uint64 m_remaining;
+	std::unique_ptr<uchar[]> m_buf[2];
+	UINT m_len[2]{ 0, 0 };
+	bool m_filled[2]{ false, false };
+	int m_consumer = 0;
+	bool m_done = false;
+	bool m_cancel = false;
+	std::exception_ptr m_excPtr;
+	std::mutex m_mtx;
+	std::condition_variable m_cv;
+	std::thread m_thread;
+};
+} // namespace
+
 void CKnownFile::CreateHash(CFile *pFile, uint64 Length, uchar *pMd4HashOut, CAICHHashTree *pShaHashOut)
 {
 	ASSERT(!Length || pFile);
 	ASSERT(pMd4HashOut != NULL || pShaHashOut != NULL);
 
-	uchar   X[64 * 128];
 	uint64	posCurrentEMBlock = 0;
 	uint64	nIACHPos = 0;
 	CMD4	md4;
 	CAICHHashAlgo *pHashAlg = (pShaHashOut != NULL) ? CAICHRecoveryHashSet::GetNewHashAlgo() : NULL;
 
-	for (uint64 Required = Length; Required;) {
-		UINT len = (UINT)(min(Required, (uint64)_countof(X)) / 64);
-		UINT uRead = len ? len * 64 : (UINT)Required;
-		VERIFY(pFile->Read(X, uRead) == uRead);
-
-		// SHA hash needs 180KB blocks
-		if (pShaHashOut != NULL) { // && pHashAlg != NULL - do not check again
-			if (nIACHPos + uRead >= EMBLOCKSIZE) {
-				uint64 nToComplete = EMBLOCKSIZE - nIACHPos;
-				pHashAlg->Add(X, (DWORD)nToComplete);
-				ASSERT(nIACHPos + nToComplete == EMBLOCKSIZE);
+	// SHA hash needs 180KB blocks. Buffer can be larger than EMBLOCKSIZE
+	// (256 KB > 180 KB) so loop over every block boundary the read covers.
+	auto shaHash = [&](const uchar *X, UINT uRead) {
+		DWORD consumed = 0;
+		while (consumed < uRead) {
+			DWORD remainInBlock = (DWORD)(EMBLOCKSIZE - nIACHPos);
+			DWORD remainInBuf = uRead - consumed;
+			if (remainInBuf >= remainInBlock) {
+				pHashAlg->Add(X + consumed, remainInBlock);
+				ASSERT(nIACHPos + remainInBlock == EMBLOCKSIZE);
 				pShaHashOut->SetBlockHash(EMBLOCKSIZE, posCurrentEMBlock, pHashAlg);
 				posCurrentEMBlock += EMBLOCKSIZE;
 				pHashAlg->Reset();
-				nIACHPos = uRead - nToComplete;
-				pHashAlg->Add(X + nToComplete, (DWORD)nIACHPos);
+				nIACHPos = 0;
+				consumed += remainInBlock;
 			} else {
-				pHashAlg->Add(X, uRead);
-				nIACHPos += uRead;
+				pHashAlg->Add(X + consumed, remainInBuf);
+				nIACHPos += remainInBuf;
+				consumed = uRead;
 			}
 		}
+	};
 
-		if (pMd4HashOut != NULL)
+	// Run SHA-1 (AICH) on a side worker so MD4 and SHA-1 hash the same buffer
+	// concurrently. Only worth the thread when both hashes are requested.
+	const bool bParallel = (pMd4HashOut != NULL) && (pShaHashOut != NULL);
+	std::unique_ptr<CSerialWorker> shaWorker;
+	if (bParallel)
+		shaWorker.reset(new CSerialWorker);
+
+	CHashReader reader(pFile, Length);
+	for (uint64 Required = Length; Required;) {
+		UINT uRead = 0;
+		uchar *X = reader.Acquire(uRead);
+		ASSERT(X != NULL && uRead <= Required);
+
+		if (bParallel) {
+			shaWorker->Submit([X, uRead, &shaHash]() { shaHash(X, uRead); });
 			md4.Add(X, uRead);
+			shaWorker->Wait();
+		} else if (pShaHashOut != NULL) {
+			shaHash(X, uRead);
+		} else {
+			md4.Add(X, uRead);
+		}
 
+		reader.Release();
 		Required -= uRead;
 	}
 
@@ -978,18 +1134,6 @@ void CKnownFile::CreateHash(CFile *pFile, uint64 Length, uchar *pMd4HashOut, CAI
 		md4.Finish();
 		md4cpy(pMd4HashOut, md4.GetHash());
 	}
-}
-
-bool CKnownFile::CreateHash(FILE *fp, uint64 uSize, uchar *pucHash, CAICHHashTree *pShaHashOut)
-{
-	try {
-		CStdioFile file(fp);
-		CreateHash(&file, uSize, pucHash, pShaHashOut);
-		return true;
-	} catch (CFileException *ex) {
-		ex->Delete();
-	}
-	return false;
 }
 
 bool CKnownFile::CreateHash(const uchar *pucData, uint32 uSize, uchar *pucHash, CAICHHashTree *pShaHashOut)

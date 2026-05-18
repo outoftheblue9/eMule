@@ -91,6 +91,7 @@
     <ClCompile Include="Test_MD4.cpp" />
     <ClCompile Include="Test_UInt128.cpp" />
     <ClCompile Include="Test_PartFileWriteCoalesce.cpp" />
+    <ClCompile Include="Test_HashWorker.cpp" />
     <ClCompile Include="..\MD4.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
