@@ -3442,8 +3442,12 @@ CString CPartFile::getPartfileStatus() const
 	switch (GetStatus()) {
 	case PS_HASHING:
 	case PS_WAITINGFORHASH:
-		uid = IDS_HASHING;
-		break;
+		{
+			CString strState(GetResString(IDS_HASHING));
+			if (GetFileOp() == PFOP_HASHING && GetFileOpProgress() > 0)
+				strState.AppendFormat(_T(" (%u%%)"), (unsigned)GetFileOpProgress());
+			return strState;
+		}
 	case PS_COMPLETING:
 		{
 			CString strState(GetResString(IDS_COMPLETING));
