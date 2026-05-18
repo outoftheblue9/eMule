@@ -9,3 +9,4 @@ srchybrid/tests/Win32/
 srchybrid/tests/x64/
 TestResults/
 *.trx
+srchybrid/emule.vcxproj.user
