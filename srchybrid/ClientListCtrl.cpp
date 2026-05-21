@@ -67,6 +67,7 @@ void CClientListCtrl::Init()
 	InsertColumn(5, _T(""),	LVCFMT_LEFT,	DFLT_CLIENTSOFT_COL_WIDTH);	//IDS_CD_CSOFT
 	InsertColumn(6, _T(""),	LVCFMT_LEFT,	50);						//IDS_CONNECTED
 	InsertColumn(7, _T(""), LVCFMT_LEFT,	DFLT_HASH_COL_WIDTH);		//IDS_CD_UHASH
+	InsertColumn(8, _T(""), LVCFMT_LEFT,	80);						//IDS_SHAREDFILES (requestable)
 
 	SetAllIcons();
 	Localize();
@@ -91,6 +92,10 @@ void CClientListCtrl::Localize()
 	hdi.mask = HDI_TEXT;
 	hdi.pszText = const_cast<LPTSTR>((LPCTSTR)strRes);
 	GetHeaderCtrl()->SetItem(7, &hdi);
+
+	CString strShared(GetResString(IDS_SHAREDFILES));
+	hdi.pszText = const_cast<LPTSTR>((LPCTSTR)strShared);
+	GetHeaderCtrl()->SetItem(8, &hdi);
 }
 
 void CClientListCtrl::OnSysColorChange()
@@ -195,6 +200,9 @@ CString CClientListCtrl::GetItemDisplayText(const CUpDownClient *client, int iSu
 		break;
 	case 7: //hash
 		sText = md4str(client->GetUserHash());
+		break;
+	case 8: //shared files requestable
+		sText = GetResString(client->GetViewSharedFilesSupport() ? IDS_YES : IDS_NO);
 	}
 	return sText;
 }
@@ -234,6 +242,7 @@ void CClientListCtrl::OnLvnColumnClick(LPNMHDR pNMHDR, LRESULT *pResult)
 		case 4: // Downloaded Total
 		case 5: // Client Software
 		case 6: // Connected
+		case 8: // Shared files requestable
 			sortAscending = false;
 			break;
 		default:
@@ -304,6 +313,9 @@ int CALLBACK CClientListCtrl::SortProc(LPARAM lParam1, LPARAM lParam2, LPARAM lP
 		break;
 	case 7: //hash
 		iResult = memcmp(item1->GetUserHash(), item2->GetUserHash(), 16);
+		break;
+	case 8: //shared files requestable
+		iResult = static_cast<int>(item1->GetViewSharedFilesSupport()) - static_cast<int>(item2->GetViewSharedFilesSupport());
 	}
 
 	if (HIWORD(lParamSort))
