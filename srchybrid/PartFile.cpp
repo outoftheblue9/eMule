@@ -239,6 +239,7 @@ void CPartFile::Init()
 	memset(net_stats, 0, sizeof net_stats);
 	m_TotalSearchesKad = 0;
 	m_bPreviewing = false;
+	m_bPreviewReady = false;
 	m_bRecoveringArchive = false;
 	m_bLocalSrcReqQueued = false;
 	srcarevisible = false;
@@ -1157,6 +1158,7 @@ EPartFileLoadResult CPartFile::LoadPartFile(LPCTSTR in_directory, LPCTSTR in_fil
 	}
 
 	UpdateCompletedInfos();
+	UpdatePreviewReady();
 	return PLR_LOADSUCCESS;
 }
 
@@ -3016,7 +3018,7 @@ void CPartFile::PerformFileCompleteEnd(DWORD dwResult)
 		thePrefs.Add2DownSessionCompletedFiles();
 		thePrefs.SaveCompletedDownloadsStat();
 
-		// 05-Jän-2004 [bc]: ed2k and Kad are already full of totally wrong and/or not properly
+		// 05-Jï¿½n-2004 [bc]: ed2k and Kad are already full of totally wrong and/or not properly
 		// attached meta data. Take the chance to clean any available meta data tags and provide
 		// only tags which were determined by us.
 		UpdateMetaDataTags();
@@ -4348,6 +4350,8 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 		} else
 			m_bUpdateMet = (m_nTotalBufferData > 0);
 
+		UpdatePreviewReady();
+
 		if (!theApp.IsClosing()) { // may be called during shutdown!
 			// Is this file finished?
 			if (m_gaplist.IsEmpty()) {
@@ -4793,6 +4797,7 @@ void CPartFile::_SetStatus(EPartFileStatus eStatus)
 void CPartFile::SetStatus(EPartFileStatus eStatus)
 {
 	_SetStatus(eStatus);
+	UpdatePreviewReady();
 	if (!theApp.IsClosing()) {
 		NotifyStatusChange();
 		UpdateDisplayedInfo(true);
@@ -4846,7 +4851,7 @@ bool CPartFile::GetNextRequestedBlock(CUpDownClient *sender, Requested_Block_Str
 	//      completed before starting to download an other one.
 	//
 	// The frequency criterion defines 4 grades of availability: very rare, rare, almost rare,
-	// and common. Inside each grade, the criteria have a specific ‘weight’, used
+	// and common. Inside each grade, the criteria have a specific ï¿½weightï¿½, used
 	// to calculate the priority of chunks. The chunk(s) with the highest
 	// priority (highest=0, lowest=0xffff) is/are selected first.
 	//

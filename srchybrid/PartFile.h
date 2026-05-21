@@ -246,6 +246,13 @@ public:
 
 	bool	CanOpenFile() const;
 	bool	IsReadyForPreview() const;
+	// Cached snapshot of IsReadyForPreview(). Read from UI draw + filter
+	// instead of the live call to avoid per-row PreviewApps + disk-space
+	// checks. Refreshed in Load/SetStatus/FlushBuffer; may lag the live
+	// value up to one FlushBuffer tick (sub-second when downloading) and
+	// will not pick up preview-app pref changes until the next refresh.
+	bool	IsPreviewReady() const						{ return m_bPreviewReady; }
+	void	UpdatePreviewReady()						{ m_bPreviewReady = IsReadyForPreview(); }
 	bool	CanStopFile() const;
 	bool	CanPauseFile() const;
 	bool	CanResumeFile() const;
@@ -415,6 +422,7 @@ private:
 	bool	m_paused;
 	bool	m_stopped;
 	bool	m_bPauseOnPreview;
+	bool	m_bPreviewReady;
 	bool	m_insufficient;
 	bool	m_bCompletionError;
 	bool	m_bAICHPartHashsetNeeded;

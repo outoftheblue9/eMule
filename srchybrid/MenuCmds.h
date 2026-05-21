@@ -188,6 +188,7 @@
 #define	MP_PREVIEW_APP_MIN		11200	// reserve 50 entries for preview apps
 #define	MP_PREVIEW_APP_MAX		(MP_PREVIEW_APP_MIN + 49)
 #define MP_FILTERCOLUMNS		11300	// reserve 50 entries for filter columns
+#define MP_TOGGLE_PREVIEWABLEFILTER	11400
 
 #define Irc_Join				10240
 #define Irc_Close				10241

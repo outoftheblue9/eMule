@@ -51,6 +51,7 @@ static char THIS_FILE[] = __FILE__;
 #define DLC_BARUPDATE (SEC2MS(1)/2)
 
 #define RATING_ICON_WIDTH	16
+#define PREVIEW_ICON_WIDTH	16
 
 
 IMPLEMENT_DYNAMIC(CtrlItem_Struct, CObject)
@@ -192,6 +193,7 @@ void CDownloadListCtrl::SetAllIcons()
 	m_ImageList.Add(CTempIconLoader(_T("Rating_Good")));	//18
 	m_ImageList.Add(CTempIconLoader(_T("Rating_Excellent")));//19
 	m_ImageList.Add(CTempIconLoader(_T("Collection_Search"))); //20 rating for comments are searched on kad
+	m_ImageList.Add(CTempIconLoader(_T("Preview")));		//21 previewable file indicator
 	m_ImageList.SetOverlayImage(m_ImageList.Add(CTempIconLoader(_T("ClientSecureOvl"))), 1);
 	m_ImageList.SetOverlayImage(m_ImageList.Add(CTempIconLoader(_T("OverlayObfu"))), 2);
 	m_ImageList.SetOverlayImage(m_ImageList.Add(CTempIconLoader(_T("OverlaySecureObfu"))), 3);
@@ -395,6 +397,11 @@ void CDownloadListCtrl::DrawFileItem(CDC &dc, int nColumn, LPCRECT lpRect, UINT 
 			if (theApp.GetSystemImageList() != NULL)
 				::ImageList_Draw(theApp.GetSystemImageList(), iImage, dc.GetSafeHdc(), rcDraw.left, rcDraw.top + iIconPosY, ILD_TRANSPARENT);
 			rcDraw.left += theApp.GetSmallSytemIconSize().cx;
+
+			if (pPartFile->IsPreviewReady()) {
+				m_ImageList.Draw(&dc, 21, CPoint(rcDraw.left + 2, rcDraw.top + iIconPosY), ILD_TRANSPARENT);
+				rcDraw.left += 2 + PREVIEW_ICON_WIDTH;
+			}
 
 			if (thePrefs.ShowRatingIndicator() && (pPartFile->HasComment() || pPartFile->HasRating() || pPartFile->IsKadCommentSearchRunning())) {
 				m_ImageList.Draw(&dc, 14 + pPartFile->UserRating(true), CPoint(rcDraw.left + 2, rcDraw.top + iIconPosY), ILD_NORMAL);
@@ -1023,9 +1030,13 @@ void CDownloadListCtrl::OnContextMenu(CWnd*, CPoint point)
 				m_FileMenu.AppendMenu(MF_SEPARATOR);
 				m_FileMenu.AppendMenu(MF_STRING, MP_TOGGLEDTOOLBAR, GetResString(IDS_SHOWTOOLBAR));
 			}
+			m_FileMenu.AppendMenu(MF_SEPARATOR);
+			m_FileMenu.AppendMenu(MF_STRING | (thePrefs.GetShowOnlyPreviewable() ? MF_CHECKED : MF_UNCHECKED), MP_TOGGLE_PREVIEWABLEFILTER, _T("Show Only Previewable Files"));
 
 			GetPopupMenuPos(*this, point);
 			m_FileMenu.TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, this);
+			VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
+			VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
 			if (bToolbarItem) {
 				VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
 				VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
@@ -1122,9 +1133,13 @@ void CDownloadListCtrl::OnContextMenu(CWnd*, CPoint point)
 			m_FileMenu.AppendMenu(MF_SEPARATOR);
 			m_FileMenu.AppendMenu(MF_STRING, MP_TOGGLEDTOOLBAR, GetResString(IDS_SHOWTOOLBAR));
 		}
+		m_FileMenu.AppendMenu(MF_SEPARATOR);
+		m_FileMenu.AppendMenu(MF_STRING | (thePrefs.GetShowOnlyPreviewable() ? MF_CHECKED : MF_UNCHECKED), MP_TOGGLE_PREVIEWABLEFILTER, _T("Show Only Previewable Files"));
 
 		GetPopupMenuPos(*this, point);
 		m_FileMenu.TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, this);
+		VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
+		VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
 		if (bToolbarItem) {
 			VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
 			VERIFY(m_FileMenu.RemoveMenu(m_FileMenu.GetMenuItemCount() - 1, MF_BYPOSITION));
@@ -1222,6 +1237,11 @@ BOOL CDownloadListCtrl::OnCommand(WPARAM wParam, LPARAM)
 	case MP_TOGGLEDTOOLBAR:
 		thePrefs.SetDownloadToolbar(true);
 		theApp.emuledlg->transferwnd->ShowToolbar(true);
+		return TRUE;
+	case MP_TOGGLE_PREVIEWABLEFILTER:
+		thePrefs.SetShowOnlyPreviewable(!thePrefs.GetShowOnlyPreviewable());
+		UpdateCurrentCategoryView();
+		ShowFilesCount();
 		return TRUE;
 	}
 
@@ -2148,14 +2168,18 @@ void CDownloadListCtrl::ChangeCategory(int newsel)
 {
 	SetRedraw(false);
 
+	const bool bOnlyPreviewable = thePrefs.GetShowOnlyPreviewable();
 	// show the files of the selected category, remove all others
 	for (ListItems::const_iterator it = m_ListItems.begin(); it != m_ListItems.end(); ++it) {
 		const CtrlItem_Struct *cur_item = it->second;
-		if (cur_item->type == FILE_TYPE)
-			if (static_cast<CPartFile*>(cur_item->value)->CheckShowItemInGivenCat(newsel))
+		if (cur_item->type == FILE_TYPE) {
+			CPartFile *pPartFile = static_cast<CPartFile*>(cur_item->value);
+			if (pPartFile->CheckShowItemInGivenCat(newsel)
+				&& (!bOnlyPreviewable || pPartFile->IsPreviewReady()))
 				ShowFile(it);
 			else
 				HideFile(it);
+		}
 	}
 
 	SetRedraw(true);
@@ -2185,6 +2209,12 @@ void CDownloadListCtrl::HideFile(ListItems::const_iterator ihide)
 void CDownloadListCtrl::ShowFile(ListItems::const_iterator ishow)
 {
 	CtrlItem_Struct *updateItem = ishow->second;
+
+	if (thePrefs.GetShowOnlyPreviewable() && updateItem->type == FILE_TYPE) {
+		const CPartFile *pPartFile = static_cast<const CPartFile*>(updateItem->value);
+		if (pPartFile != NULL && !pPartFile->IsPreviewReady())
+			return;
+	}
 
 	// Check if entry is already in the List
 	LVFINDINFO find;

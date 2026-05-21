@@ -334,6 +334,7 @@ int		CPreferences::m_iInspectAllFileTypes;
 bool	CPreferences::m_bPreviewOnIconDblClk;
 bool	CPreferences::m_bCheckFileOpen;
 bool	CPreferences::indicateratings;
+bool	CPreferences::m_bShowOnlyPreviewable;
 bool	CPreferences::watchclipboard;
 bool	CPreferences::filterserverbyip;
 bool	CPreferences::m_bFirstStart;
@@ -1574,6 +1575,7 @@ void CPreferences::SavePreferences()
 	ini.WriteBool(_T("SafeServerConnect"), m_bSafeServerConnect);
 	ini.WriteBool(_T("ShowRatesOnTitle"), showRatesInTitle);
 	ini.WriteBool(_T("IndicateRatings"), indicateratings);
+	ini.WriteBool(_T("ShowOnlyPreviewable"), m_bShowOnlyPreviewable);
 	ini.WriteBool(_T("WatchClipboard4ED2kFilelinks"), watchclipboard);
 	ini.WriteInt(_T("SearchMethod"), m_iSearchMethod);
 	ini.WriteBool(_T("CheckDiskspace"), checkDiskspace);
@@ -2188,6 +2190,7 @@ void CPreferences::LoadPreferences()
 	m_bPreviewOnIconDblClk = ini.GetBool(_T("PreviewOnIconDblClk"), false);
 	m_bCheckFileOpen = ini.GetBool(_T("CheckFileOpen"), true);
 	indicateratings = ini.GetBool(_T("IndicateRatings"), true);
+	m_bShowOnlyPreviewable = ini.GetBool(_T("ShowOnlyPreviewable"), false);
 	watchclipboard = ini.GetBool(_T("WatchClipboard4ED2kFilelinks"), false);
 	m_iSearchMethod = ini.GetInt(_T("SearchMethod"), 0);
 
