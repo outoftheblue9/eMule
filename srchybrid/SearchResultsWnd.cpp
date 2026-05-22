@@ -124,6 +124,12 @@ CSearchResultsWnd::CSearchResultsWnd(CWnd* /*pParent*/)
 
 CSearchResultsWnd::~CSearchResultsWnd()
 {
+	// Null the back-pointer in CSearchList; otherwise ~CSearchList -> Clear()
+	// dereferences a stale outputwnd whose child HWND was already destroyed by
+	// our WM_CLOSE (EmuleDlg::OnClose sends WM_CLOSE to searchwnd before
+	// deleting theApp.searchlist), tripping ASSERT(::IsWindow) in DeleteAllItems.
+	if (theApp.searchlist != NULL)
+		theApp.searchlist->SetOutputWnd(NULL);
 	m_ctlSearchListHeader.Detach();
 	delete m_searchpacket;
 	if (m_uTimerLocalServer)

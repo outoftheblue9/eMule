@@ -1245,7 +1245,14 @@ void CSearchListCtrl::OnNmDblClk(LPNMHDR, LRESULT*)
 void CSearchListCtrl::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 {
 	if (!lpDrawItemStruct->itemData || theApp.IsClosing()
-		|| lpDrawItemStruct->itemID >= (UINT)GetItemCount())
+		|| lpDrawItemStruct->itemID >= (UINT)GetItemCount()
+		// Stale WM_DRAWITEM messages can outlive a DeleteItem/RemoveResult: the
+		// message captured the original lParam at post time, but by the time we
+		// reach DrawItem the row may have been removed (and the backing
+		// CSearchFile* freed). If the listctrl's current lParam for this slot
+		// no longer matches the message's itemData, the pointer is stale —
+		// dropping the draw avoids a use-after-free.
+		|| (LPARAM)GetItemData(lpDrawItemStruct->itemID) != (LPARAM)lpDrawItemStruct->itemData)
 		return;
 
 	CRect rcItem(lpDrawItemStruct->rcItem);

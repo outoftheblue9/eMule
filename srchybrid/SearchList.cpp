@@ -82,6 +82,12 @@ CSearchList::~CSearchList()
 
 void CSearchList::Clear()
 {
+	// Drop listctrl rows first — any row still referencing a CSearchFile we are
+	// about to free would otherwise UAF on the next WM_DRAWITEM.
+	// IsWindow guard: during shutdown the child HWND may already be destroyed
+	// (searchwnd WM_CLOSE happens before delete theApp.searchlist).
+	if (outputwnd != NULL && ::IsWindow(outputwnd->GetSafeHwnd()))
+		outputwnd->DeleteAllItems();
 	for (POSITION pos = m_listFileLists.GetHeadPosition(); pos != NULL;) {
 		POSITION posLast = pos;
 		SearchListsStruct *listCur = m_listFileLists.GetNext(pos);
@@ -94,7 +100,10 @@ void CSearchList::Clear()
 
 void CSearchList::RemoveResults(uint32 nSearchID)
 {
-	// this will not delete the item from the window, make sure your code does it if you call this
+	// If the listctrl is currently displaying this search, drop the rows first so
+	// no stale lParam can reach DrawItem after the underlying CSearchFile is freed.
+	if (outputwnd != NULL && ::IsWindow(outputwnd->GetSafeHwnd()) && outputwnd->GetResultsID() == nSearchID)
+		outputwnd->DeleteAllItems();
 	for (POSITION pos = m_listFileLists.GetHeadPosition(); pos != NULL;) {
 		POSITION posLast = pos;
 		SearchListsStruct *listCur = m_listFileLists.GetNext(pos);
