@@ -340,18 +340,14 @@ void CSearchListCtrl::AddResult(const CSearchFile *toshow)
 	if (!theApp.emuledlg->searchwnd->m_pwndResults->m_astrFilter.IsEmpty() && IsFilteredOut(toshow))
 		return;
 
-	// Turn off updates
-	EUpdateMode eCurUpdateMode = SetUpdateMode(none);
-	// Add item
-	int iItem = InsertItem(LVIF_TEXT | LVIF_PARAM, GetItemCount(), toshow->GetFileName(), 0, 0, 0, (LPARAM)toshow);
-	// Add all sub items as callbacks and restore updating with last sub item.
-	// The callbacks are only needed for 'Find' functionality, not for any drawing.
-	const int iSubItems = 13;
-	for (int i = 1; i <= iSubItems; ++i) {
-		if (i == iSubItems)
-			SetUpdateMode(eCurUpdateMode);
-		SetItemText(iItem, i, LPSTR_TEXTCALLBACK);
-	}
+	// Owner-draw paints sub-items directly via GetItemDisplayText; keyboard quick-search and
+	// LVM_FINDITEM only consult the primary item; OnLvnGetInfoTip ignores sub-item tooltips.
+	// Skipping per-sub-item LPSTR_TEXTCALLBACK avoids ~13 LVM_SETITEMTEXT messages per row.
+	// Live inserts keep the default `lazy` update mode so CMuleListCtrl::OnWndMsg places the
+	// row at its sorted position. Bulk loads (CSearchList::ShowResults sets mode = none) take
+	// the fast-path in MuleListCtrl that appends without invoking the comparator; the caller
+	// then runs a single SortItems pass.
+	InsertItem(LVIF_TEXT | LVIF_PARAM, GetItemCount(), toshow->GetFileName(), 0, 0, 0, (LPARAM)toshow);
 }
 
 void CSearchListCtrl::UpdateSources(const CSearchFile *toupdate)
@@ -509,12 +505,14 @@ void CSearchListCtrl::ShowResults(uint32 nResultsID)
 	if (nResultsID != m_nResultsID && m_mapSortSelectionStates.Lookup(nResultsID, pNewState)) {
 		m_mapSortSelectionStates.RemoveKey(nResultsID);
 
-		// sort order
+		// sort arrow first; the actual SortItems pass runs AFTER the bulk insert below.
+		// CSearchList::ShowResults sets update mode to `none`, which triggers the
+		// MuleListCtrl fast-path that appends without per-insert sort positioning.
 		SetSortArrow(pNewState->m_nSortItem, pNewState->m_bSortAscending);
-		SortItems(SortProc, MAKELONG(pNewState->m_nSortItem, !pNewState->m_bSortAscending));
 		// fill in the items
 		m_nResultsID = nResultsID;
 		searchlist->ShowResults(nResultsID);
+		SortItems(SortProc, MAKELONG(pNewState->m_nSortItem, !pNewState->m_bSortAscending));
 		// set stored selectionstates
 		for (INT_PTR i = pNewState->m_aSelectedItems.GetCount(); --i >= 0;)
 			SetItemState(pNewState->m_aSelectedItems[i], LVIS_SELECTED, LVIS_SELECTED);
@@ -529,6 +527,8 @@ void CSearchListCtrl::ShowResults(uint32 nResultsID)
 	} else {
 		m_nResultsID = nResultsID;
 		searchlist->ShowResults(nResultsID);
+		if (GetSortItem() != -1)
+			SortItems(SortProc, MAKELONG(GetSortItem(), !GetSortAscending()));
 	}
 }
 
@@ -1244,7 +1244,8 @@ void CSearchListCtrl::OnNmDblClk(LPNMHDR, LRESULT*)
 
 void CSearchListCtrl::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 {
-	if (!lpDrawItemStruct->itemData || theApp.IsClosing())
+	if (!lpDrawItemStruct->itemData || theApp.IsClosing()
+		|| lpDrawItemStruct->itemID >= (UINT)GetItemCount())
 		return;
 
 	CRect rcItem(lpDrawItemStruct->rcItem);
@@ -1322,7 +1323,12 @@ void CSearchListCtrl::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 		dc.SetBoundsRect(&tree_rect, DCB_DISABLE);
 
 		//gather some information
-		bool hasNext = notLast && reinterpret_cast<CSearchFile*>(GetItemData(lpDrawItemStruct->itemID + 1))->GetListParent() != NULL;
+		// Stale draw messages may reference items removed mid-scroll (RemoveResult during
+		// streaming search updates). Guard the next-item lookup against NULL lParam.
+		const CSearchFile *pNextSrc = notLast
+			? reinterpret_cast<CSearchFile*>(GetItemData(lpDrawItemStruct->itemID + 1))
+			: NULL;
+		bool hasNext = pNextSrc && pNextSrc->GetListParent() != NULL;
 		bool isOpenRoot = hasNext && !isChild;
 
 		//might as well calculate these now
@@ -1382,19 +1388,29 @@ void CSearchListCtrl::DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
 
 static CSearchFile::EKnownType DetermineKnownType(const CSearchFile *src)
 {
+	// Sort by the "Known" column compares this for every pair the listview
+	// touches; without a cache the cancelled-list check runs MD5 over the
+	// FileID on every call, which makes bulk sorts O(N log N) MD5 hashes.
+	// Cache is invalidated by CSearchFile::InvalidateKnownType (call sites
+	// that mutate download/known/cancelled state should invoke it).
+	if (src->IsKnownTypeCached())
+		return src->GetKnownType();
+
+	CSearchFile::EKnownType eType;
 	const CKnownFile *pFile = theApp.downloadqueue->GetFileByID(src->GetFileHash());
-	if (pFile) {
-		if (pFile->IsPartFile())
-			return CSearchFile::Downloading;
-		return CSearchFile::Shared;
-	}
-	if (theApp.sharedfiles->GetFileByID(src->GetFileHash()))
-		return CSearchFile::Shared;
-	if (theApp.knownfiles->FindKnownFileByID(src->GetFileHash()))
-		return CSearchFile::Downloaded;
-	if (theApp.knownfiles->IsCancelledFileByID(src->GetFileHash()))
-		return CSearchFile::Cancelled;
-	return CSearchFile::NotDetermined;
+	if (pFile)
+		eType = pFile->IsPartFile() ? CSearchFile::Downloading : CSearchFile::Shared;
+	else if (theApp.sharedfiles->GetFileByID(src->GetFileHash()))
+		eType = CSearchFile::Shared;
+	else if (theApp.knownfiles->FindKnownFileByID(src->GetFileHash()))
+		eType = CSearchFile::Downloaded;
+	else if (theApp.knownfiles->IsCancelledFileByID(src->GetFileHash()))
+		eType = CSearchFile::Cancelled;
+	else
+		eType = CSearchFile::NotDetermined;
+
+	const_cast<CSearchFile*>(src)->SetKnownType(eType);
+	return eType;
 }
 
 COLORREF CSearchListCtrl::GetSearchItemColor(/*const*/ CSearchFile *src)

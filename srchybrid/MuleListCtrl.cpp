@@ -896,6 +896,25 @@ BOOL CMuleListCtrl::OnWndMsg(UINT message, WPARAM wParam, LPARAM lParam, LRESULT
 		return (BOOL)(*pResult = 1);
 	case LVM_INSERTITEMA:
 	case LVM_INSERTITEMW:
+		// Fast path: when the caller has disabled per-insert sort positioning,
+		// append without invoking the comparator. The binary-search walk below
+		// calls m_SortProc O(log N) times per insert, which on lists with
+		// expensive comparators (e.g. CSearchListCtrl::Compare on the "Known"
+		// column, which hashes file IDs via MD5) makes bulk loads quadratic.
+		// The caller is responsible for SortItems() after the bulk insert.
+		if (m_eUpdateMode == none) {
+			LRESULT lResult = DefWindowProc(message, wParam, lParam);
+			if (lResult != -1) {
+				LPLVITEM pItem = reinterpret_cast<LPLVITEM>(lParam);
+				if (lResult >= GetItemCount())
+					m_Params.AddTail(pItem->lParam);
+				else if (lResult == 0)
+					m_Params.AddHead(pItem->lParam);
+				else
+					m_Params.InsertAfter(m_Params.FindIndex(lResult - 1), pItem->lParam);
+			}
+			return (BOOL)(*pResult = lResult);
+		}
 		//try to fix position of inserted items
 		{
 			LPLVITEM pItem = reinterpret_cast<LPLVITEM>(lParam);

@@ -113,6 +113,7 @@ IMPLEMENT_DYNAMIC(CSearchFile, CAbstractFile)
 CSearchFile::CSearchFile(const CSearchFile *copyfrom)
 	: CAbstractFile(copyfrom)
 	, m_list_childcount()
+	, m_bKnownTypeCached(false)
 	, m_bPreviewPossible()
 	, m_list_bExpanded()
 {
@@ -136,6 +137,7 @@ CSearchFile::CSearchFile(const CSearchFile *copyfrom)
 
 	m_list_parent = const_cast<CSearchFile*>(copyfrom);
 	m_eKnown = copyfrom->m_eKnown;
+	m_bKnownTypeCached = copyfrom->m_bKnownTypeCached;
 	m_strNameWithoutKeywords = copyfrom->GetNameWithoutKeyword();
 	m_bServerUDPAnswer = copyfrom->m_bServerUDPAnswer;
 	m_nSpamRating = copyfrom->GetSpamRating();
@@ -160,6 +162,7 @@ CSearchFile::CSearchFile(CFileDataIO &in_data, bool bOptUTF8, uint32 nSearchID, 
 	, m_list_childcount()
 	, m_list_parent()
 	, m_eKnown(NotDetermined)
+	, m_bKnownTypeCached(false)
 	, m_bPreviewPossible()
 	, m_list_bExpanded()
 {

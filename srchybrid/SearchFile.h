@@ -163,7 +163,9 @@ public:
 	};
 
 	EKnownType GetKnownType() const							{ return m_eKnown; }
-	void SetKnownType(EKnownType eType)						{ m_eKnown = eType; }
+	void SetKnownType(EKnownType eType)						{ m_eKnown = eType; m_bKnownTypeCached = true; }
+	bool IsKnownTypeCached() const							{ return m_bKnownTypeCached; }
+	void InvalidateKnownType()								{ m_bKnownTypeCached = false; }
 
 private:
 	bool	m_bMultipleAICHFound;
@@ -194,6 +196,7 @@ private:
 	UINT		m_list_childcount;
 	CSearchFile	*m_list_parent;
 	EKnownType	m_eKnown;
+	bool		m_bKnownTypeCached;
 	bool		m_bPreviewPossible;
 	bool		m_list_bExpanded;
 };
