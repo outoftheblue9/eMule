@@ -22,6 +22,7 @@
 #include "PartFileAllocThread.h"
 #include "ed2kLink.h"
 #include "SearchFile.h"
+#include "SearchList.h"
 #include "ClientList.h"
 #include "Statistics.h"
 #include "SharedFileList.h"
@@ -155,7 +156,7 @@ CDownloadQueue::~CDownloadQueue()
 
 void CDownloadQueue::AddSearchToDownload(CSearchFile *toadd, uint8 paused, int cat)
 {
-	if (!(uint64)toadd->GetFileSize() || IsFileExisting(toadd->GetFileHash()))
+	if (!(uint64)toadd->GetFileSize() || IsFileExisting(toadd->GetFileHash(), true))
 		return;
 
 	if (toadd->GetFileSize() > OLD_MAX_EMULE_FILE_SIZE && !thePrefs.CanFSHandleLargeFiles(cat)) {
@@ -172,6 +173,11 @@ void CDownloadQueue::AddSearchToDownload(CSearchFile *toadd, uint8 paused, int c
 	if (paused == 2)
 		paused = (uint8)thePrefs.AddNewFilesPaused();
 	AddDownload(newfile, (paused == 1));
+
+	// Search rows cache their EKnownType; invalidate so the "Known" column
+	// flips to "Downloading" on the next paint.
+	if (theApp.searchlist != NULL)
+		theApp.searchlist->InvalidateKnownTypeByHash(toadd->GetFileHash());
 
 	// If the search result is from OP_GLOBSEARCHRES there may also be a source
 	if (toadd->GetClientID() && toadd->GetClientPort()) {

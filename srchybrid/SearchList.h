@@ -95,6 +95,12 @@ public:
 	void	StoreSearches();
 	void	LoadSearches();
 
+	// Invalidate the cached EKnownType (set by CSearchListCtrl::DetermineKnownType)
+	// for every search-result entry matching the given file hash. Called when a
+	// file's known/shared/cancelled/downloading state flips, so the "Known"
+	// column repaints with the correct icon/color on next draw.
+	void	InvalidateKnownTypeByHash(const uchar *fileid);
+
 	void	DoSpamRating(CSearchFile *pSearchFile, bool bIsClientFile = false, bool bMarkAsNoSpam = false
 				, bool bRecalculateAll = false, bool bUpdate = false, uint32 dwFromUDPServerIP = 0);
 	void	MarkFileAsSpam(CSearchFile *pSpamFile, bool bRecalculateAll = false, bool bUpdate = false);

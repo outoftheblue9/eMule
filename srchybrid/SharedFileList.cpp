@@ -39,6 +39,7 @@
 #include "kademlia/kademlia/UDPFirewallTester.h"
 #include "ImportParts.h"
 #include "MD5Sum.h"
+#include "SearchList.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -798,6 +799,8 @@ bool CSharedFileList::SafeAddKFile(CKnownFile *toadd, bool bOnlyAdd)
 		}
 		m_lastPublishED2KFlag = true;
 	}
+	if (bAdded && theApp.searchlist != NULL)
+		theApp.searchlist->InvalidateKnownTypeByHash(toadd->GetFileHash());
 	return bAdded;
 }
 
@@ -909,6 +912,8 @@ bool CSharedFileList::RemoveFile(CKnownFile *pFile, bool bDeleted)
 		theApp.knownfiles->m_nRequestedTotal -= pFile->statistic.GetAllTimeRequests();
 		theApp.knownfiles->m_nAcceptedTotal -= pFile->statistic.GetAllTimeAccepts();
 		theApp.knownfiles->m_nTransferredTotal -= pFile->statistic.GetAllTimeTransferred();
+		if (theApp.searchlist != NULL)
+			theApp.searchlist->InvalidateKnownTypeByHash(pFile->GetFileHash());
 	}
 	return bResult;
 }

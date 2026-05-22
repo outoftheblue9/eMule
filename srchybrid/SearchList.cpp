@@ -1194,6 +1194,26 @@ SearchList* CSearchList::GetSearchListForID(uint32 nSearchID)
 	return &GetSearchStructForID(nSearchID)->m_listSearchFiles;
 }
 
+void CSearchList::InvalidateKnownTypeByHash(const uchar *fileid)
+{
+	const CSKey key(fileid);
+	for (POSITION posOuter = m_listFileLists.GetHeadPosition(); posOuter != NULL;) {
+		SearchListsStruct *pStruct = m_listFileLists.GetNext(posOuter);
+		CSearchFile *parent = NULL;
+		if (!pStruct->m_mapParentByHash.Lookup(key, parent) || parent == NULL)
+			continue;
+		parent->InvalidateKnownType();
+		// Children of the matched parent share the same file hash; invalidate them too.
+		for (POSITION pos = pStruct->m_listSearchFiles.GetHeadPosition(); pos != NULL;) {
+			CSearchFile *file = pStruct->m_listSearchFiles.GetNext(pos);
+			if (file->GetListParent() == parent)
+				file->InvalidateKnownType();
+		}
+	}
+	if (outputwnd != NULL)
+		outputwnd->Invalidate(FALSE);
+}
+
 void CSearchList::SentUDPRequestNotification(uint32 nSearchID, uint32 dwServerIP)
 {
 	if (nSearchID == m_nCurED2KSearchID)

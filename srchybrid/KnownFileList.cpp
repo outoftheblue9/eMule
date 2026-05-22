@@ -30,6 +30,7 @@
 #include "MD5Sum.h"
 #include "SharedFilesWnd.h"
 #include "SharedFilesCtrl.h"
+#include "SearchList.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -330,6 +331,8 @@ bool CKnownFileList::SafeAddKFile(CKnownFile *toadd)
 
 	if (toadd->GetFileIdentifier().HasAICHHash())
 		m_mapKnownFilesByAICH[toadd->GetFileIdentifier().GetAICHHash()] = toadd;
+	if (theApp.searchlist != NULL)
+		theApp.searchlist->InvalidateKnownTypeByHash(toadd->GetFileHash());
 	return true;
 }
 
@@ -389,6 +392,8 @@ void CKnownFileList::AddCancelledFileID(const uchar *hash)
 		md4cpy(pachSeedHash, md5.GetRawHash());
 		m_mapCancelledFiles[CSKey(pachSeedHash)] = 1;
 	}
+	if (theApp.searchlist != NULL)
+		theApp.searchlist->InvalidateKnownTypeByHash(hash);
 }
 
 bool CKnownFileList::IsCancelledFileByID(const uchar *hash) const

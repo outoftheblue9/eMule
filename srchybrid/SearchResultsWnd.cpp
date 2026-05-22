@@ -1438,6 +1438,12 @@ void CSearchResultsWnd::DeleteSearch(uint32 uSearchID)
 			CancelEd2kSearch();
 		m_pwndParams->m_ctlMore.EnableWindow(FALSE);
 	}
+	// If the listctrl is currently displaying this tab, wipe its rows before the
+	// backing CSearchFile* objects are freed by RemoveResults — otherwise any
+	// WM_DRAWITEM pumped before the subsequent ShowResults() (tab DeleteItem,
+	// SetCurSel, paint cycle) dereferences a dangling lParam.
+	if (searchlistctrl.GetResultsID() == uSearchID)
+		searchlistctrl.DeleteAllItems();
 	theApp.searchlist->RemoveResults(uSearchID);
 
 	// clean up stored states (scrolling pos. etc) for this search
@@ -1489,8 +1495,10 @@ void CSearchResultsWnd::DeleteAllSearches()
 
 void CSearchResultsWnd::NoTabItems()
 {
-	theApp.searchlist->Clear();
+	// Drop listctrl rows first so dangling lParams from the just-freed
+	// CSearchFile* objects cannot be drawn between the two calls.
 	searchlistctrl.DeleteAllItems();
+	theApp.searchlist->Clear();
 	ShowSearchSelector(false);
 	searchselect.DeleteAllItems();
 	searchlistctrl.NoTabs();

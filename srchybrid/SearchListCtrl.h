@@ -66,6 +66,7 @@ public:
 	void	ShowResults(uint32 nResultsID);
 	void	ClearResultViewState(uint32 nResultsID);
 	void	NoTabs()								{ m_nResultsID = 0; m_astrHighlightTokens.RemoveAll(); }
+	uint32	GetResultsID() const					{ return m_nResultsID; }
 	void	SetHighlightExpression(LPCTSTR pszExpression);
 	void	UpdateSearch(CSearchFile *toupdate);
 	void	UpdateTabHeader(uint32 nResultsID);
