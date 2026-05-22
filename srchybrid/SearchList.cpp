@@ -65,6 +65,7 @@ CSearchList::CSearchList()
 	: outputwnd()
 	, m_nCurED2KSearchID()
 	, m_bSpamFilterLoaded()
+	, m_bLoading()
 {
 }
 
@@ -131,11 +132,14 @@ void CSearchList::ShowResults(uint32 nSearchID)
 
 void CSearchList::RemoveResult(CSearchFile *todel)
 {
-	SearchList *list = GetSearchListForID(todel->GetSearchID());
+	SearchListsStruct *pStruct = GetSearchStructForID(todel->GetSearchID());
+	SearchList *list = &pStruct->m_listSearchFiles;
 	POSITION pos = list->Find(todel);
 	if (pos != NULL) {
 		theApp.emuledlg->searchwnd->RemoveResult(todel);
 		list->RemoveAt(pos);
+		if (todel->GetListParent() == NULL)
+			pStruct->m_mapParentByHash.RemoveKey(CSKey(todel->GetFileHash()));
 		delete todel;
 	}
 }
@@ -405,7 +409,8 @@ bool CSearchList::AddToList(CSearchFile *toadd, bool bClientResponse, uint32 dwF
 		delete toadd;
 		return false;
 	}
-	SearchList *list = GetSearchListForID(toadd->GetSearchID());
+	SearchListsStruct *pStruct = GetSearchStructForID(toadd->GetSearchID());
+	SearchList *list = &pStruct->m_listSearchFiles;
 
 	// Spam filter: Calculate the filename without any used keywords (and separators) for later use
 	CString strNameWithoutKeyword;
@@ -433,10 +438,11 @@ bool CSearchList::AddToList(CSearchFile *toadd, bool bClientResponse, uint32 dwF
 	}
 	toadd->SetNameWithoutKeyword(strNameWithoutKeyword);
 
-	// search for a 'parent' with same file hash and search-id as the new search result entry
-	for (POSITION pos = list->GetHeadPosition(); pos != NULL;) {
-		CSearchFile *parent = list->GetNext(pos);
-		if (parent->GetListParent() == NULL && md4equ(parent->GetFileHash(), toadd->GetFileHash())) {
+	// O(1) parent-by-hash lookup (avoids O(N) walk on each insert)
+	CSearchFile *parent = NULL;
+	pStruct->m_mapParentByHash.Lookup(CSKey(toadd->GetFileHash()), parent);
+	if (parent != NULL) {
+		{
 			// if this parent does not have any child entries yet, create one child entry
 			// which is equal to the current parent entry (needed for GUI when expanding the child list).
 			if (!parent->GetListChildCount()) {
@@ -604,7 +610,7 @@ bool CSearchList::AddToList(CSearchFile *toadd, bool bClientResponse, uint32 dwF
 			AddResultCount(parent->GetSearchID(), parent->GetFileHash(), uAvail, parent->IsConsideredSpam());
 
 			// update parent in GUI
-			if (outputwnd)
+			if (outputwnd && !m_bLoading)
 				outputwnd->UpdateSources(parent);
 
 			if (bFound) {
@@ -619,6 +625,7 @@ bool CSearchList::AddToList(CSearchFile *toadd, bool bClientResponse, uint32 dwF
 	toadd->SetListParent(NULL);
 	UINT uAvail = toadd->GetSourceCount();
 	if (list->AddTail(toadd)) {
+		pStruct->m_mapParentByHash[CSKey(toadd->GetFileHash())] = toadd;
 		UINT tempValue;
 		if (!m_foundFilesCount.Lookup(toadd->GetSearchID(), tempValue))
 			tempValue = 0;
@@ -641,7 +648,7 @@ bool CSearchList::AddToList(CSearchFile *toadd, bool bClientResponse, uint32 dwF
 	AddResultCount(toadd->GetSearchID(), toadd->GetFileHash(), uAvail, toadd->IsConsideredSpam());
 
 	// add to parent in GUI
-	if (outputwnd)
+	if (outputwnd && !m_bLoading)
 		outputwnd->AddResult(toadd);
 
 	return true;
@@ -1165,17 +1172,22 @@ uint32 CSearchList::GetSpamFilenameRatings(const CSearchFile *pSearchFile, bool 
 }
 
 
-SearchList* CSearchList::GetSearchListForID(uint32 nSearchID)
+SearchListsStruct* CSearchList::GetSearchStructForID(uint32 nSearchID)
 {
 	for (POSITION pos = m_listFileLists.GetHeadPosition(); pos != NULL;) {
 		SearchListsStruct *list = m_listFileLists.GetNext(pos);
 		if (list->m_nSearchID == nSearchID)
-			return &list->m_listSearchFiles;
+			return list;
 	}
 	SearchListsStruct *list = new SearchListsStruct;
 	list->m_nSearchID = nSearchID;
 	m_listFileLists.AddTail(list);
-	return &list->m_listSearchFiles;
+	return list;
+}
+
+SearchList* CSearchList::GetSearchListForID(uint32 nSearchID)
+{
+	return &GetSearchStructForID(nSearchID)->m_listSearchFiles;
 }
 
 void CSearchList::SentUDPRequestNotification(uint32 nSearchID, uint32 dwServerIP)
@@ -1485,16 +1497,21 @@ void CSearchList::LoadSearches()
 	}
 
 	::setvbuf(file.m_pStream, NULL, _IOFBF, 16384);
+	m_bLoading = true;
+	uint32 nActiveTabID = (uint32)-1;
+	bool bHaveActiveTab = false;
 	try {
 		uint8 header = file.ReadUInt8();
 		if (header != MET_HEADER_I64TAGS) {
 			file.Close();
+			m_bLoading = false;
 			DebugLogError(_T("Failed to load %s, invalid first byte"), STOREDSEARCHES_FILENAME);
 			return;
 		}
 		uint8 byVersion = file.ReadUInt8();
 		if (byVersion != STOREDSEARCHES_VERSION) {
 			file.Close();
+			m_bLoading = false;
 			return;
 		}
 
@@ -1511,6 +1528,10 @@ void CSearchList::LoadSearches()
 			if (!bDeleteParams) {
 				m_foundFilesCount[pParams->dwSearchID] = 0;
 				m_foundSourcesCount[pParams->dwSearchID] = 0;
+				// CreateNewTab sets the new tab as current; remember it for the
+				// single post-load bulk populate.
+				nActiveTabID = pParams->dwSearchID;
+				bHaveActiveTab = true;
 			} else
 				ASSERT(0); //failed to create tab
 
@@ -1519,6 +1540,9 @@ void CSearchList::LoadSearches()
 				CSearchFile *toadd = new CSearchFile(file, true, pParams->dwSearchID, 0, 0, NULL, pParams->eType == SearchTypeKademlia);
 				AddToList(toadd, pParams->bClientSharedFiles);
 			}
+			// UpdateTabHeader touches only the tab control's text, not the listctrl,
+			// so it is safe (and useful) to run per-tab even while m_bLoading suppresses
+			// per-row listctrl inserts.
 			if (outputwnd)
 				outputwnd->UpdateTabHeader(pParams->dwSearchID);
 
@@ -1533,5 +1557,16 @@ void CSearchList::LoadSearches()
 		DebugLogError(_T("Failed to load %s%s"), STOREDSEARCHES_FILENAME
 			, (ex->m_cause == CFileException::endOfFile) ? _T(" - corrupt") : (LPCTSTR)CExceptionStrDash(*ex));
 		ex->Delete();
+	}
+	m_bLoading = false;
+
+	// Bulk-populate the active tab's listctrl now. During the load every
+	// CreateNewTab issued a DeleteAllItems on the shared CSearchListCtrl, so
+	// per-row inserts done by intermediate tabs would have been wiped anyway;
+	// suppressing them and running one ShowResults at the end goes through the
+	// b6b4351 update-mode-`none` fast path.
+	if (outputwnd && bHaveActiveTab) {
+		outputwnd->ShowResults(nActiveTabID);
+		outputwnd->UpdateTabHeader(nActiveTabID);
 	}
 }

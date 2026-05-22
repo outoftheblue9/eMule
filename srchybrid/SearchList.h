@@ -40,6 +40,9 @@ typedef struct
 {
 	uint32 m_nSearchID;
 	SearchList m_listSearchFiles;
+	// O(1) parent-by-hash lookup; avoids O(N^2) walks in CSearchList::AddToList
+	// when loading large stored searches or accumulating large live result sets.
+	CMap<CSKey, const CSKey&, CSearchFile*, CSearchFile*> m_mapParentByHash;
 } SearchListsStruct;
 
 typedef struct
@@ -110,6 +113,7 @@ public:
 
 protected:
 	SearchList* GetSearchListForID(uint32 nSearchID);
+	SearchListsStruct* GetSearchStructForID(uint32 nSearchID);
 	uint32	GetSpamFilenameRatings(const CSearchFile *pSearchFile, bool bMarkAsNoSpam);
 	void	LoadSpamFilter();
 
@@ -138,4 +142,10 @@ private:
 
 	uint32	m_nCurED2KSearchID;
 	bool	m_bSpamFilterLoaded;
+	// LoadSearches sets this true while reading StoredSearches.met so AddToList
+	// skips per-row outputwnd updates. Each CreateNewTab calls
+	// CSearchListCtrl::ShowResults -> DeleteAllItems anyway, so intermediate
+	// inserts during the load are wasted work; we bulk-populate the active
+	// tab once after the load instead.
+	bool	m_bLoading;
 };
