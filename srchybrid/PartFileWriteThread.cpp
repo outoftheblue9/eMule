@@ -224,7 +224,8 @@ void CPartFileWriteThread::WriteBuffers()
 				}
 			}
 			pOvWrite->pos = m_listPendingIO.AddTail(pOvWrite);
-			++pFile->m_iWrites;
+			if (::InterlockedIncrement(&pFile->m_iWrites) == 1)
+				pFile->m_eventNoPendingWrites.ResetEvent();
 		} else {
 			theApp.QueueDebugLogLineEx(LOG_ERROR, _T("WriteBuffers error: CPartFile cannot be written"));
 			if (pMerge) {
@@ -259,15 +260,13 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 		m_listPendingIO.RemoveAt(pOvWrite->pos);
 		if (dwBytesWritten && dwWrite == dwBytesWritten) {
 			if (pFile) {
-				--pFile->m_iWrites;
 				if (pMerge) { //fan completion across all source items
-					ASSERT(pFile->m_iWrites >= 0);
 					for (PartFileBufferedData *src : pMerge->sources) {
 						ASSERT(src->flushed == PB_PENDING);
 						src->flushed = PB_WRITTEN;
 					}
 				} else if (pBuffer->data) { //write data
-					ASSERT(pBuffer->flushed == PB_PENDING && pFile->m_iWrites >= 0);
+					ASSERT(pBuffer->flushed == PB_PENDING);
 					pBuffer->flushed = PB_WRITTEN;
 				} else { //full file allocation
 					ASSERT(dwBytesWritten == 1);
@@ -313,6 +312,13 @@ void CPartFileWriteThread::WriteCompletionRoutine(DWORD dwBytesWritten, const Ov
 		if (pFile)
 			RemFile(pFile);
 	}
+
+	// Decrement m_iWrites for every IO that was counted by WriteBuffers, regardless of
+	// success / error / shutdown path. Signal m_eventNoPendingWrites on the 1->0 edge so
+	// ~CPartFile can drain pending overlapped IO before deleting m_BufferedData_list items
+	// referenced by MergedWrite::sources.
+	if (pFile && ::InterlockedDecrement(&pFile->m_iWrites) == 0)
+		pFile->m_eventNoPendingWrites.SetEvent();
 
 	delete pOvWrite;
 }

@@ -346,7 +346,8 @@ public:
 	CFile	m_hpartfile;				// permanent opened handle to avoid write conflicts
 	CMutex	m_FileCompleteMutex;		// Lord KiRon - Mutex for file completion
 	HANDLE	m_hWrite;					// asynchronous part file writing
-	int		m_iWrites;					// outstanding I/O counter - read only in the main thread
+	volatile LONG m_iWrites;			// outstanding I/O counter; touched by CPartFileWriteThread (Interlocked* inc/dec) and read by main thread
+	CEvent	m_eventNoPendingWrites{TRUE, TRUE};	// manual-reset, initially signaled; cleared while m_iWrites > 0, set when it returns to 0. ~CPartFile waits on it so MergedWrite::sources / pOvWrite->pFile cannot dangle.
 	volatile LONG m_nAllocPending;		// CPartFileAllocThread requests in flight; write thread defers data writes while > 0
 	volatile LONG m_dwAllocError;		// last OS error from CPartFileAllocThread (e.g. ERROR_DISK_FULL); 0 = none; consumed by next FlushBuffer on main thread
 	DWORD	m_LastSearchTime;

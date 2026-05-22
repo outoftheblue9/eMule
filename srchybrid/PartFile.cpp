@@ -296,6 +296,12 @@ CPartFile::~CPartFile()
 	if ((HANDLE)m_hpartfile != INVALID_HANDLE_VALUE) {
 		// commit file and directory entry
 		FlushBuffer(false, true);
+		// Drain pending overlapped IO on CPartFileWriteThread before freeing the
+		// m_BufferedData_list items below (MergedWrite::sources point into that list)
+		// and before this CPartFile is destructed (WriteCompletionRoutine derefs
+		// pOvWrite->pFile). The write thread is still alive here — shutdown order in
+		// CemuleDlg::OnClose calls EndThread() after delete downloadqueue.
+		m_eventNoPendingWrites.Lock();
 		CPartFileWriteThread::RemFile(this);
 		m_hpartfile.Close();
 		// Update met file (with the current directory entry)
