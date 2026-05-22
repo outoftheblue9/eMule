@@ -112,6 +112,7 @@ CEMSocket::CEMSocket()
 	, m_bUseBigSendBuffers()
 	, m_bUseOverlappedSend(true)
 	, m_bPendingSendOv()
+	, m_pPendingSendBufferDelete()
 {
 	lastCalledSend = timeGetTime();
 	lastSent = lastCalledSend > SEC2MS(1) ? lastCalledSend - SEC2MS(1) : 0;
@@ -142,7 +143,9 @@ CEMSocket::~CEMSocket()
 bool CEMSocket::Connect(const CString &sHostAddress, UINT nHostPort)
 {
 	InitProxySupport();
-	return CEncryptedStreamSocket::Connect(sHostAddress, nHostPort);
+	bool bRes = CEncryptedStreamSocket::Connect(sHostAddress, nHostPort);
+	ApplyTCPNoDelay();
+	return bRes;
 }
 // end deadlake
 
@@ -151,7 +154,9 @@ bool CEMSocket::Connect(const CString &sHostAddress, UINT nHostPort)
 BOOL CEMSocket::Connect(const LPSOCKADDR pSockAddr, int iSockAddrLen)
 {
 	InitProxySupport();
-	return CEncryptedStreamSocket::Connect(pSockAddr, iSockAddrLen);
+	BOOL bRes = CEncryptedStreamSocket::Connect(pSockAddr, iSockAddrLen);
+	ApplyTCPNoDelay();
+	return bRes;
 }
 // end deadlake
 
@@ -720,24 +725,27 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 
 		maxNumberOfBytesToSend = GetNextFragSize(maxNumberOfBytesToSend, minFragSize);
 		lastCalledSend = timeGetTime();
-		ASSERT(!m_bPendingSendOv && m_aBufferSend.IsEmpty());
+		ASSERT(!m_bPendingSendOv && m_aBufferSend.IsEmpty() && m_aBufferSendOwned.IsEmpty());
 		if (sendbuffer != NULL || !controlpacket_queue.IsEmpty() || (!standardpacket_queue.IsEmpty() && !onlyAllowedToSendControlPacket)) {
 			// WSASend takes multiple buffers which is quite nice for our case, as we have to call send
 			// only once regardless how many packets we want to ship without moving memory.
-			// But before we can do this, collect all buffers we want to send in this call
+			// Zero-copy: WSABUFs point directly at sendbuffer/DetachPacket memory.
+			// Ownership: m_aBufferSendOwned[i]==true => CleanUp delete[]s the buf;
+			//            ==false => buf points into sendbuffer (freed via m_pPendingSendBufferDelete or kept).
 
 			sint32 nBytesLeft = maxNumberOfBytesToSend;
 			// first send the existing sendbuffer (already started packet)
 			if (sendbuffer != NULL) {
 				WSABUF pCurBuf;
 				pCurBuf.len = min(sendblen - sent, (uint32)nBytesLeft);
-				pCurBuf.buf = new CHAR[pCurBuf.len];
-				memcpy(pCurBuf.buf, sendbuffer + sent, pCurBuf.len);
+				pCurBuf.buf = sendbuffer + sent;
 				m_aBufferSend.Add(pCurBuf);
+				m_aBufferSendOwned.Add(false);
 				sent += pCurBuf.len;
 				nBytesLeft -= pCurBuf.len;
-				if (sent == sendblen) { //finished the buffer
-					delete[] sendbuffer;
+				if (sent == sendblen) { // finished the buffer; defer free until WSASend completes
+					ASSERT(m_pPendingSendBufferDelete == NULL);
+					m_pPendingSendBufferDelete = sendbuffer;
 					sendbuffer = NULL;
 					sendblen = 0;
 				}
@@ -763,6 +771,7 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 				// encrypting which cannot be done transparently in the base class
 				CryptPrepareSendData((uchar*)pCurBuf.buf, pCurBuf.len);
 				m_aBufferSend.Add(pCurBuf);
+				m_aBufferSendOwned.Add(true);
 				nBytesLeft -= pCurBuf.len;
 				ret.sentBytesControlPackets += pCurBuf.len;
 			}
@@ -772,6 +781,7 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 				while (!standardpacket_queue.IsEmpty() && nBytesLeft > 0) {
 					StandardPacketQueueEntry queueEntry = standardpacket_queue.RemoveHead();
 					WSABUF pCurBuf;
+					bool bOwned;
 					Packet *curPacket = queueEntry.packet;
 					m_currentPackageIsFromPartFile = curPacket->IsFromPF();
 
@@ -781,10 +791,11 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 						pCurBuf.len = curPacket->GetRealPacketSize();
 						pCurBuf.buf = curPacket->DetachPacket();
 						CryptPrepareSendData((uchar*)pCurBuf.buf, pCurBuf.len);// encryption cannot be done transparently in the base class
+						bOwned = true;
 						::InterlockedAdd((LONG*)&m_actualPayloadSizeSent, queueEntry.actualPayloadSize);
 						lastFinishedStandard = timeGetTime();
 						m_bAccelerateUpload = false;
-					} else {	// aww, well first stuff everything into the sendbuffer and then send what we can of it
+					} else {	// stash whole packet in sendbuffer, send the head slice zero-copy
 						ASSERT(sendbuffer == NULL);
 						m_actualPayloadSize = queueEntry.actualPayloadSize;
 						sendblen = curPacket->GetRealPacketSize();
@@ -792,14 +803,15 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 						sent = 0;
 						CryptPrepareSendData((uchar*)sendbuffer, sendblen); //  encryption cannot be done transparently in the base class
 						pCurBuf.len = min(sendblen - sent, (uint32)nBytesLeft);
-						pCurBuf.buf = new CHAR[pCurBuf.len];
-						memcpy(pCurBuf.buf, sendbuffer, pCurBuf.len);
+						pCurBuf.buf = sendbuffer;
+						bOwned = false;
 						sent += pCurBuf.len;
 						ASSERT(sent < sendblen);
 						m_currentPacket_is_controlpacket = false;
 					}
 					delete curPacket;
 					m_aBufferSend.Add(pCurBuf);
+					m_aBufferSendOwned.Add(bOwned);
 					nBytesLeft -= pCurBuf.len;
 					ret.sentBytesStandardPackets += pCurBuf.len;
 					if (m_currentPackageIsFromPartFile)
@@ -813,7 +825,7 @@ SocketSentBytes CEMSocket::SendOv(uint32 maxNumberOfBytesToSend, uint32 minFragS
 				memset(&m_PendingSendOperation, 0, sizeof WSAOVERLAPPED);
 				m_PendingSendOperation.hEvent = theApp.uploadBandwidthThrottler->GetSocketAvailableEvent();
 				m_bPendingSendOv = true;
-				if (CEncryptedStreamSocket::SendOv(m_aBufferSend, &m_PendingSendOperation) == 0)
+				if (CEncryptedStreamSocket::SendOv(m_aBufferSend, m_aBufferSendOwned, &m_PendingSendOperation) == 0)
 					CleanUpOverlappedSendOperation(false);
 				else {
 					int nError = WSAGetLastError();
@@ -1080,6 +1092,16 @@ CString CEMSocket::GetFullErrorMessage(DWORD dwError) const
 	return strError;
 }
 
+void CEMSocket::ApplyTCPNoDelay()
+{
+	if (m_SocketData.hSocket == INVALID_SOCKET || !thePrefs.GetTCPNoDelay())
+		return;
+	DWORD dwSavedErr = ::WSAGetLastError();
+	BOOL val = TRUE;
+	SetSockOpt(TCP_NODELAY, &val, sizeof val, IPPROTO_TCP);
+	::WSASetLastError(dwSavedErr);
+}
+
 // increases the send buffer to a bigger size
 bool CEMSocket::UseBigSendBuffer()
 {
@@ -1150,9 +1172,14 @@ void CEMSocket::CleanUpOverlappedSendOperation(bool bCancel)
 				::Sleep(20);
 			};
 
+		ASSERT(m_aBufferSend.GetCount() == m_aBufferSendOwned.GetCount());
 		for (INT_PTR i = m_aBufferSend.GetCount(); --i >= 0;)
-			delete[] m_aBufferSend[i].buf;
+			if (m_aBufferSendOwned[i])
+				delete[] m_aBufferSend[i].buf;
 		m_aBufferSend.RemoveAll();
+		m_aBufferSendOwned.RemoveAll();
+		delete[] m_pPendingSendBufferDelete;
+		m_pPendingSendBufferDelete = NULL;
 	}
 }
 

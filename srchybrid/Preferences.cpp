@@ -67,6 +67,7 @@ uint16	CPreferences::nServerUDPPort;
 UINT	CPreferences::maxconnections;
 UINT	CPreferences::maxhalfconnections;
 bool	CPreferences::m_bConditionalTCPAccept;
+bool	CPreferences::m_bTCPNoDelay;
 bool	CPreferences::reconnect;
 bool	CPreferences::m_bUseServerPriorities;
 bool	CPreferences::m_bUseUserSortedServerList;
@@ -1520,6 +1521,7 @@ void CPreferences::SavePreferences()
 	ini.WriteInt(_T("MaxConnections"), maxconnections);
 	ini.WriteInt(_T("MaxHalfConnections"), maxhalfconnections);
 	ini.WriteBool(_T("ConditionalTCPAccept"), m_bConditionalTCPAccept);
+	ini.WriteBool(_T("TCPNoDelay"), m_bTCPNoDelay);
 	ini.WriteInt(_T("Port"), port);
 	ini.WriteInt(_T("UDPPort"), udpport);
 	ini.WriteInt(_T("ServerUDPPort"), nServerUDPPort);
@@ -1943,6 +1945,7 @@ void CPreferences::LoadPreferences()
 	maxconnections = ini.GetInt(_T("MaxConnections"), GetRecommendedMaxConnections());
 	maxhalfconnections = ini.GetInt(_T("MaxHalfConnections"), 9);
 	m_bConditionalTCPAccept = ini.GetBool(_T("ConditionalTCPAccept"), false);
+	m_bTCPNoDelay = ini.GetBool(_T("TCPNoDelay"), true);
 
 	// reset max half-open to a default if OS changed to/from XP SP2 or higher
 	int dwSP2OrHigher = ini.GetInt(_T("WinXPSP2OrHigher"), -1);

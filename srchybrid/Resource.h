@@ -1567,6 +1567,7 @@
 #define IDS_SPLASH_START_HASH           1623
 #define IDS_SPLASH_READY                1624
 #define IDS_SPLASH_LOAD_SEARCHES        1625
+#define IDS_TCPNODELAY                  1626
 #define IDC_ANIMATE1                    2000
 #define IDC_STATUS                      2001
 #define IDC_FILESTATUS                  2002
@@ -2388,9 +2389,9 @@
 //
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1568
+#define _APS_NEXT_RESOURCE_VALUE        1569
 #define _APS_NEXT_COMMAND_VALUE         32773
 #define _APS_NEXT_CONTROL_VALUE         3040
-#define _APS_NEXT_SYMED_VALUE           1625
+#define _APS_NEXT_SYMED_VALUE           1627
 #endif
 #endif

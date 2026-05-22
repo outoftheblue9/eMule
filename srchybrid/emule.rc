@@ -3165,6 +3165,7 @@ BEGIN
     IDS_STATS_MNUTREEHTML   "HTML Features"
     IDS_STATS_EXPORT2HTML   "Export Statistics..."
     IDS_CONDTCPACCEPT       "Fast connection reject"
+    IDS_TCPNODELAY          "Disable Nagle algorithm (TCP_NODELAY, recommended)"
 END
 
 STRINGTABLE

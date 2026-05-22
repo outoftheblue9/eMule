@@ -2063,6 +2063,7 @@ void CListenSocket::OnAccept(int nErrorCode)
 				VERIFY(newclient->InitAsyncSocketExInstance());
 				newclient->m_SocketData.hSocket = sNew;
 				newclient->AttachHandle();
+				newclient->ApplyTCPNoDelay();
 
 				AddConnection();
 			} else {
@@ -2089,6 +2090,7 @@ void CListenSocket::OnAccept(int nErrorCode)
 					}
 					continue;
 				}
+				newclient->ApplyTCPNoDelay();
 
 				AddConnection();
 

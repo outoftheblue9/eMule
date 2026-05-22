@@ -95,7 +95,7 @@ public:
 	uint8	m_dbgbyEncryptionMethodSet;
 
 protected:
-	int SendOv(CArray<WSABUF> &aBuffer, LPWSAOVERLAPPED lpOverlapped);
+	int SendOv(CArray<WSABUF> &aBuffer, CArray<bool> &aOwned, LPWSAOVERLAPPED lpOverlapped);
 	virtual void	OnError(int nErrorCode) = 0;
 	CString			DbgGetIPString();
 	void			CryptPrepareSendData(uchar *pBuffer, uint32 nLen);

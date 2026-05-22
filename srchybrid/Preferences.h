@@ -162,6 +162,7 @@ public:
 	static UINT		maxconnections;
 	static UINT		maxhalfconnections;
 	static bool		m_bConditionalTCPAccept;
+	static bool		m_bTCPNoDelay;
 	static bool		reconnect;
 	static bool		m_bUseServerPriorities;
 	static bool		m_bUseUserSortedServerList;
@@ -967,6 +968,7 @@ public:
 	static UINT		GetDeadServerRetries()				{ return m_uDeadServerRetries; }
 	static DWORD	GetServerKeepAliveTimeout()			{ return m_dwServerKeepAliveTimeout; }
 	static bool		GetConditionalTCPAccept()			{ return m_bConditionalTCPAccept; }
+	static bool		GetTCPNoDelay()						{ return m_bTCPNoDelay; }
 
 	static LANGID	GetLanguageID()						{ return m_wLanguageID; }
 	static void		SetLanguageID(LANGID lid)			{ m_wLanguageID = lid; }

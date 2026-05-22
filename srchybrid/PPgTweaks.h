@@ -33,6 +33,7 @@ protected:
 	HTREEITEM m_htiCommitNever;
 	HTREEITEM m_htiCommitOnShutdown;
 	HTREEITEM m_htiConditionalTCPAccept;
+	HTREEITEM m_htiTCPNoDelay;
 	HTREEITEM m_htiCreditSystem;
 	HTREEITEM m_htiDebug2Disk;
 	HTREEITEM m_htiDebugSourceExchange;
@@ -107,6 +108,7 @@ protected:
 	bool m_bCheckDiskspace;
 	bool m_bCloseUPnPOnExit;
 	bool m_bConditionalTCPAccept;
+	bool m_bTCPNoDelay;
 	bool m_bCreditSystem;
 	bool m_bDebug2Disk;
 	bool m_bDebugSourceExchange;

@@ -67,6 +67,7 @@ CPPgTweaks::CPPgTweaks()
 	, m_htiCommitNever()
 	, m_htiCommitOnShutdown()
 	, m_htiConditionalTCPAccept()
+	, m_htiTCPNoDelay()
 	, m_htiCreditSystem()
 	, m_htiDebug2Disk()
 	, m_htiDebugSourceExchange()
@@ -138,6 +139,7 @@ CPPgTweaks::CPPgTweaks()
 	, m_bCheckDiskspace()
 	, m_bCloseUPnPOnExit(true)
 	, m_bConditionalTCPAccept()
+	, m_bTCPNoDelay(true)
 	, m_bCreditSystem()
 	, m_bDebug2Disk()
 	, m_bDebugSourceExchange()
@@ -201,6 +203,7 @@ void CPPgTweaks::DoDataExchange(CDataExchange *pDX)
 		m_htiMaxHalfOpen = m_ctrlTreeOptions.InsertItem(GetResString(IDS_MAXHALFOPENCONS), TREEOPTSCTRLIMG_EDIT, TREEOPTSCTRLIMG_EDIT, m_htiTCPGroup);
 		m_ctrlTreeOptions.AddEditBox(m_htiMaxHalfOpen, RUNTIME_CLASS(CNumTreeOptionsEdit));
 		m_htiConditionalTCPAccept = m_ctrlTreeOptions.InsertCheckBox(GetResString(IDS_CONDTCPACCEPT), m_htiTCPGroup, m_bConditionalTCPAccept);
+		m_htiTCPNoDelay = m_ctrlTreeOptions.InsertCheckBox(GetResString(IDS_TCPNODELAY), m_htiTCPGroup, m_bTCPNoDelay);
 		m_htiServerKeepAliveTimeout = m_ctrlTreeOptions.InsertItem(GetResString(IDS_SERVERKEEPALIVETIMEOUT), TREEOPTSCTRLIMG_EDIT, TREEOPTSCTRLIMG_EDIT, m_htiTCPGroup);
 		m_ctrlTreeOptions.AddEditBox(m_htiServerKeepAliveTimeout, RUNTIME_CLASS(CNumTreeOptionsEdit));
 
@@ -316,6 +319,7 @@ void CPPgTweaks::DoDataExchange(CDataExchange *pDX)
 	DDX_TreeEdit(pDX, IDC_EXT_OPTS, m_htiMaxHalfOpen, m_iMaxHalfOpen);
 	DDV_MinMaxInt(pDX, m_iMaxHalfOpen, 1, INT_MAX);
 	DDX_TreeCheck(pDX, IDC_EXT_OPTS, m_htiConditionalTCPAccept, m_bConditionalTCPAccept);
+	DDX_TreeCheck(pDX, IDC_EXT_OPTS, m_htiTCPNoDelay, m_bTCPNoDelay);
 	DDX_Text(pDX, IDC_EXT_OPTS, m_htiServerKeepAliveTimeout, m_uServerKeepAliveTimeout);
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -430,6 +434,7 @@ BOOL CPPgTweaks::OnInitDialog()
 	m_iMaxConnPerFive = thePrefs.GetMaxConperFive();
 	m_iMaxHalfOpen = thePrefs.GetMaxHalfConnections();
 	m_bConditionalTCPAccept = thePrefs.GetConditionalTCPAccept();
+	m_bTCPNoDelay = thePrefs.GetTCPNoDelay();
 	m_bAutoTakeEd2kLinks = thePrefs.AutoTakeED2KLinks();
 	if (thePrefs.GetEnableVerboseOptions()) {
 		m_bVerbose = thePrefs.m_bVerbose;
@@ -529,6 +534,7 @@ BOOL CPPgTweaks::OnApply()
 	theApp.scheduler->original_cons5s = thePrefs.GetMaxConperFive();
 	thePrefs.SetMaxHalfConnections(m_iMaxHalfOpen ? m_iMaxHalfOpen : DFLT_MAXHALFOPEN);
 	thePrefs.m_bConditionalTCPAccept = m_bConditionalTCPAccept;
+	thePrefs.m_bTCPNoDelay = m_bTCPNoDelay;
 
 	if (thePrefs.AutoTakeED2KLinks() != m_bAutoTakeEd2kLinks) {
 		thePrefs.autotakeed2klinks = m_bAutoTakeEd2kLinks;
@@ -680,6 +686,7 @@ void CPPgTweaks::Localize()
 		LocalizeItemText(m_htiCommitNever, IDS_NEVER);
 		LocalizeItemText(m_htiCommitOnShutdown, IDS_ONSHUTDOWN);
 		LocalizeItemText(m_htiConditionalTCPAccept, IDS_CONDTCPACCEPT);
+		LocalizeItemText(m_htiTCPNoDelay, IDS_TCPNODELAY);
 		LocalizeItemText(m_htiCreditSystem, IDS_USECREDITSYSTEM);
 		LocalizeItemText(m_htiDebug2Disk, IDS_LOG2DISK);
 		LocalizeItemText(m_htiDebugSourceExchange, IDS_DEBUG_SOURCE_EXCHANGE);
@@ -732,6 +739,7 @@ void CPPgTweaks::OnDestroy()
 	m_htiMaxCon5Sec = NULL;
 	m_htiMaxHalfOpen = NULL;
 	m_htiConditionalTCPAccept = NULL;
+	m_htiTCPNoDelay = NULL;
 	m_htiAutoTakeEd2kLinks = NULL;
 	m_htiVerboseGroup = NULL;
 	m_htiVerbose = NULL;

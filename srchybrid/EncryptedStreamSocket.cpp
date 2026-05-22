@@ -189,7 +189,7 @@ int CEncryptedStreamSocket::Send(const void *lpBuf, int nBufLen, int nFlags)
 	return CAsyncSocketEx::Send(lpBuf, nBufLen, nFlags);
 }
 
-int CEncryptedStreamSocket::SendOv(CArray<WSABUF> &aBuffer, LPWSAOVERLAPPED lpOverlapped)
+int CEncryptedStreamSocket::SendOv(CArray<WSABUF> &aBuffer, CArray<bool> &aOwned, LPWSAOVERLAPPED lpOverlapped)
 {
 	if (!IsEncryptionLayerReady()) {
 		ASSERT(0); // must be a bug
@@ -204,6 +204,7 @@ int CEncryptedStreamSocket::SendOv(CArray<WSABUF> &aBuffer, LPWSAOVERLAPPED lpOv
 		m_pfiSendBuffer->SeekToBegin();
 		m_pfiSendBuffer->Read(wbuf.buf, wbuf.len);
 		aBuffer.InsertAt(0, wbuf);
+		aOwned.InsertAt(0, true);
 		m_NegotiatingState = ONS_COMPLETE;
 		delete m_pfiSendBuffer;
 		m_pfiSendBuffer = NULL;

@@ -51,6 +51,7 @@ public:
 	virtual bool HasQueues(bool bOnlyStandardPackets = false) const;
 	virtual bool IsLowOnFileDataQueued(uint32 nMinFilePayloadBytes) const;
 	virtual bool UseBigSendBuffer();
+	void	ApplyTCPNoDelay();
 	INT_PTR	DbgGetStdQueueCount() const						{ return standardpacket_queue.GetCount(); }
 
 	virtual DWORD GetTimeOut() const						{ return m_uTimeOut; }
@@ -128,6 +129,8 @@ private:
 	uint32	sent;
 	WSAOVERLAPPED m_PendingSendOperation;
 	CArray<WSABUF> m_aBufferSend;
+	CArray<bool> m_aBufferSendOwned;	// parallel to m_aBufferSend: true = buf was heap-alloc'd here and CleanUp must delete[] it; false = buf points into sendbuffer
+	char	*m_pPendingSendBufferDelete;	// sendbuffer pending free until WSASend completes
 
 	CTypedPtrList<CPtrList, Packet*> controlpacket_queue;
 	CList<StandardPacketQueueEntry> standardpacket_queue;
