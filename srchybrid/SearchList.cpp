@@ -192,6 +192,10 @@ UINT CSearchList::ProcessSearchAnswer(const uchar *in_packet, uint32 size
 	ASSERT(uSearchID);
 	SSearchParams *pParams = new SSearchParams;
 	pParams->strExpression = sender.GetUserName();
+	if (sender.HasValidHash()) {
+		const uchar *h = sender.GetUserHash();
+		pParams->strExpression.AppendFormat(_T(" [%02x%02x%02x%02x]"), h[0], h[1], h[2], h[3]);
+	}
 	pParams->dwSearchID = uSearchID;
 	pParams->bClientSharedFiles = true;
 	if (theApp.emuledlg->searchwnd->CreateNewTab(pParams)) {
