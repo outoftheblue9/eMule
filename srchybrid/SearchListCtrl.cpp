@@ -345,10 +345,17 @@ void CSearchListCtrl::AddResult(const CSearchFile *toshow)
 	// Skipping per-sub-item LPSTR_TEXTCALLBACK avoids ~13 LVM_SETITEMTEXT messages per row.
 	// Live inserts keep the default `lazy` update mode so CMuleListCtrl::OnWndMsg places the
 	// row at its sorted position. Bulk loads (CSearchList::ShowResults sets mode = none) take
-	// the fast-path in MuleListCtrl that appends without invoking the comparator; the caller
+	// CMuleListCtrl fast-path that appends without invoking the comparator; the caller
 	// then runs a single SortItems pass.
+	LVFINDINFO find;
+	find.flags = LVFI_PARAM;
+	find.lParam = (LPARAM)toshow;
+	if (FindItem(&find) != -1) {
+		ASSERT(0);
+		return;
+	}
 	InsertItem(LVIF_TEXT | LVIF_PARAM, GetItemCount(), toshow->GetFileName(), 0, 0, 0, (LPARAM)toshow);
-}
+	}
 
 void CSearchListCtrl::UpdateSources(const CSearchFile *toupdate)
 {
@@ -371,7 +378,7 @@ void CSearchListCtrl::UpdateSources(const CSearchFile *toupdate)
 			const SearchList *list = theApp.searchlist->GetSearchListForID(toupdate->GetSearchID());
 			for (POSITION pos = list->GetHeadPosition(); pos != NULL;) {
 				const CSearchFile *cur_file = list->GetNext(pos);
-				if (cur_file->GetListParent() == toupdate) {
+				if (cur_file->GetListParent() == toupdate && !cur_file->m_flags.noshow) {
 					LVFINDINFO find1;
 					find1.flags = LVFI_PARAM;
 					find1.lParam = (LPARAM)cur_file;
@@ -476,12 +483,18 @@ CString CSearchListCtrl::GetCompleteSourcesDisplayString(const CSearchFile *pFil
 
 void CSearchListCtrl::RemoveResult(const CSearchFile *toremove)
 {
-	LVFINDINFO find;
-	find.flags = LVFI_PARAM;
-	find.lParam = (LPARAM)toremove;
-	int iItem = FindItem(&find);
-	if (iItem >= 0)
+	// Defensive: delete every row whose lParam matches toremove. A residual
+	// duplicate row left behind here is the precondition for the WM_DRAWITEM
+	// UAF in CSearchListCtrl::DrawItem once toremove is freed by CSearchList::RemoveResult.
+	for (;;) {
+		LVFINDINFO find;
+		find.flags = LVFI_PARAM;
+		find.lParam = (LPARAM)toremove;
+		int iItem = FindItem(&find);
+		if (iItem < 0)
+			break;
 		DeleteItem(iItem);
+	}
 }
 
 void CSearchListCtrl::ShowResults(uint32 nResultsID)
@@ -1179,7 +1192,7 @@ void CSearchListCtrl::ExpandCollapseItem(int iItem, int iAction)
 			const SearchList *list = theApp.searchlist->GetSearchListForID(searchfile->GetSearchID());
 			for (POSITION pos = list->GetHeadPosition(); pos != NULL;) {
 				const CSearchFile *cur_file = list->GetNext(pos);
-				if (cur_file->GetListParent() == searchfile) {
+				if (cur_file->GetListParent() == searchfile && !cur_file->m_flags.noshow) {
 					searchfile->SetListExpanded(true);
 					InsertItem(LVIF_TEXT | LVIF_PARAM, iItem + 1, cur_file->GetFileName(), 0, 0, 0, (LPARAM)cur_file);
 				}

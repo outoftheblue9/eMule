@@ -409,6 +409,10 @@ BOOL CemuleApp::InitInstance()
 	// output all ASSERT messages to debug device
 	_CrtSetReportMode(_CRT_ASSERT, _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_REPORT_MODE) | _CRTDBG_MODE_DEBUG);
 
+	// Validate every heap block on every alloc/free. Catches buffer overruns close to
+	// the offending write site (instead of at a later free of the smashed neighbor).
+	//_CrtSetDbgFlag(_CrtSetDbgFlag(_CRTDBG_REPORT_FLAG) | _CRTDBG_CHECK_ALWAYS_DF | _CRTDBG_ALLOC_MEM_DF);
+
 	// Leak-hunt: break in debugger at the allocation that later shows up in
 	// the shutdown leak dump. Set the alloc-id printed by _CrtDumpMemoryLeaks
 	// (the number inside {curly braces}). Disable when not hunting.
@@ -1366,7 +1370,7 @@ HICON CemuleApp::LoadIcon(LPCTSTR lpszResourceName, int cx, int cy, UINT uFlags)
 				}
 			} else {
 				// WINBUG???: 'ExtractIcon' does not work well on ICO-files when using the color
-				// scheme 'Windows-Standard (extragroß)' -> always try to use 'LoadImage'!
+				// scheme 'Windows-Standard (extragroï¿½)' -> always try to use 'LoadImage'!
 				//
 				// If the ICO file contains a 16x16 icon, 'LoadImage' will though return a 32x32 icon,
 				// if LR_DEFAULTSIZE is specified! -> always specify the requested size!

@@ -147,8 +147,18 @@ void CSearchList::RemoveResult(CSearchFile *todel)
 	if (pos != NULL) {
 		theApp.emuledlg->searchwnd->RemoveResult(todel);
 		list->RemoveAt(pos);
-		if (todel->GetListParent() == NULL)
+		if (todel->GetListParent() == NULL) {
 			pStruct->m_mapParentByHash.RemoveKey(CSKey(todel->GetFileHash()));
+			for (POSITION pos2 = list->GetHeadPosition(); pos2 != NULL;) {
+				POSITION posLast = pos2;
+				CSearchFile *child = list->GetNext(pos2);
+				if (child->GetListParent() == todel) {
+					theApp.emuledlg->searchwnd->RemoveResult(child);
+					list->RemoveAt(posLast);
+					delete child;
+				}
+			}
+		}
 		delete todel;
 	}
 }

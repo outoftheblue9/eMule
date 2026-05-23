@@ -26,6 +26,10 @@
 #include "emuledlg.h"
 #include "Searchdlg.h"
 #ifdef _DEBUG
+#include "SearchResultsWnd.h"
+#include "SearchListCtrl.h"
+#endif
+#ifdef _DEBUG
 #include "DebugHelpers.h"
 #endif
 
@@ -296,6 +300,24 @@ CSearchFile::CSearchFile(CFileDataIO &in_data, bool bOptUTF8, uint32 nSearchID, 
 
 CSearchFile::~CSearchFile()
 {
+#ifdef _DEBUG
+	// Diagnostic: row leak detection. If any listctrl row still holds this CSearchFile*,
+	// a free path skipped the row removal -> next WM_DRAWITEM will UAF on dead-fill bytes.
+	if (theApp.emuledlg && theApp.emuledlg->searchwnd && theApp.emuledlg->searchwnd->m_pwndResults
+		&& ::IsWindow(theApp.emuledlg->searchwnd->m_pwndResults->searchlistctrl.GetSafeHwnd()))
+	{
+		CSearchListCtrl &ctrl = theApp.emuledlg->searchwnd->m_pwndResults->searchlistctrl;
+		LVFINDINFO find;
+		find.flags = LVFI_PARAM;
+		find.lParam = (LPARAM)this;
+		int iItem = ctrl.FindItem(&find);
+		if (iItem >= 0) {
+			TRACE(_T("LEAK: ~CSearchFile %p still has listctrl row %d (m_eKnown=%d, parent=%p)\n"),
+				this, iItem, (int)m_eKnown, m_list_parent);
+			ASSERT(!"~CSearchFile while listctrl row still references it");
+		}
+	}
+#endif
 	free(m_pszDirectory);
 	for (int i = m_listFrames.GetSize(); --i >= 0;)
 		if (m_listFrames[i])
