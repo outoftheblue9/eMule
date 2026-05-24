@@ -95,7 +95,7 @@ UINT CPartFileWriteThread::RunInternal()
 				WriteCompletionRoutine(dwWrite, pCurIO);
 		} while (::GetQueuedCompletionStatus(m_hPort, &dwWrite, &completionKey, (LPOVERLAPPED*)&pCurIO, 0));
 
-		if (!completionKey) //thread termination
+		if (!completionKey || m_Run == RUN_STOP) //thread termination
 			break;
 		m_Run = RUN_IDLE;
 		if (InterlockedExchange8(&m_bNewData, 0) && m_listPendingIO.IsEmpty())
@@ -348,7 +348,11 @@ void CPartFileWriteThread::RemFile(CPartFile *pFile)
 {
 	ASSERT(pFile);
 	if (pFile->m_hWrite != INVALID_HANDLE_VALUE) {
-		VERIFY(::CloseHandle(pFile->m_hWrite));
+		if (!::CloseHandle(pFile->m_hWrite)) {
+			// Shutdown / volume detach / external close can invalidate the kernel
+			// handle while m_hWrite still caches the value.
+			ASSERT(::GetLastError() == ERROR_INVALID_HANDLE);
+		}
 		pFile->m_hWrite = INVALID_HANDLE_VALUE;
 	}
 }
