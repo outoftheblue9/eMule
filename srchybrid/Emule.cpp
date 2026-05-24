@@ -1597,7 +1597,7 @@ bool CemuleApp::IsEd2kLinkInClipboard(LPCSTR pszLinkType, int iLinkTypeLen)
 				// Use the ANSI string
 				LPCSTR pszText = static_cast<LPCSTR>(::GlobalLock(hText));
 				if (pszText != NULL) {
-					while (isspace(*pszText))
+					while (isspace(static_cast<unsigned char>(*pszText)))
 						++pszText;
 					bFoundLink = (_strnicmp(pszText, pszLinkType, iLinkTypeLen) == 0);
 					::GlobalUnlock(hText);

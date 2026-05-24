@@ -1888,6 +1888,20 @@ void CPartFile::FillGap(uint64 start, uint64 end)
 
 	UpdateCompletedInfos();
 	UpdateDisplayedInfo();
+
+#ifdef _DEBUG
+	bool bHaveLastGap = false;
+	uint64 uLastEnd = 0;
+	for (POSITION pos = m_gaplist.GetHeadPosition(); pos != NULL;) {
+		const Gap_Struct& gap = m_gaplist.GetNext(pos);
+		ASSERT(gap.start <= gap.end);
+		ASSERT(gap.end < (uint64)GetFileSize());
+		ASSERT(!bHaveLastGap || gap.start > uLastEnd);
+		uLastEnd = gap.end;
+		bHaveLastGap = true;
+	}
+	ASSERT((uint64)GetCompletedSize() <= (uint64)GetFileSize());
+#endif
 }
 
 void CPartFile::UpdateCompletedInfos()
@@ -3137,6 +3151,8 @@ void CPartFile::DeletePartFile()
 
 bool CPartFile::HashSinglePart(UINT partnumber, bool *pbAICHReportedOK)
 {
+	ASSERT(partnumber < GetPartCount());
+
 	// Right now we demand that AICH (if we have one) and MD4 agree on a parthash, no matter what
 	// This is the most secure way in order to make sure eMule will never deliver a corrupt file,
 	// even if one or both of the hash algorithms were broken
@@ -3172,9 +3188,10 @@ bool CPartFile::HashSinglePart(UINT partnumber, bool *pbAICHReportedOK)
 	bool bMD4Checked = m_FileIdentifier.HasExpectedMD4HashCount();
 	if (bMD4Checked) {
 		if (GetPartCount() > 1 || m_nFileSize == PARTSIZE) {
-			if (m_FileIdentifier.GetAvailableMD4PartHashCount() > partnumber)
+			if (m_FileIdentifier.GetAvailableMD4PartHashCount() > partnumber) {
+				ASSERT(m_FileIdentifier.GetMD4PartHash(partnumber) != NULL);
 				bMD4Error = !md4equ(hashresult, m_FileIdentifier.GetMD4PartHash(partnumber));
-			else {
+			} else {
 				ASSERT(0);
 				m_bMD4HashsetNeeded = true;
 			}
@@ -3983,6 +4000,11 @@ uint32 CPartFile::WriteToBuffer(uint64 transize, const BYTE *data, uint64 start,
 	, Requested_Block_Struct *block, const CUpDownClient *client, bool bCopyData)
 {
 	ASSERT((sint64)transize > 0 && end < (uint64)m_nFileSize && start <= end);
+#ifdef _DEBUG
+	if (block != NULL)
+		ASSERT(IsAlreadyRequested(start, end));
+#endif
+
 	// Increment transferred bytes counter for this file
 	if (client) //Imported Parts are not counted as transferred
 		m_uTransferred += transize;
@@ -4052,6 +4074,15 @@ uint32 CPartFile::WriteToBuffer(uint64 transize, const BYTE *data, uint64 start,
 
 	// Increment buffer size marker
 	m_nTotalBufferData += lenData;
+#ifdef _DEBUG
+	uint64 uDbgTotalBufferData = 0;
+	for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
+		const PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
+		ASSERT(item->start <= item->end && item->end < (uint64)m_nFileSize);
+		uDbgTotalBufferData += item->end - item->start + 1;
+	}
+	ASSERT(m_nTotalBufferData == uDbgTotalBufferData);
+#endif
 
 	// Mark this small section of the file as filled
 	FillGap(newitem->start, newitem->end);
@@ -4189,8 +4220,11 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 			ready.reserve(m_BufferedData_list.GetCount());
 			for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
 				PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
-				if (item->flushed == PB_READY)
+				if (item->flushed == PB_READY) {
+					ASSERT(item->start <= item->end && item->end < (uint64)m_nFileSize);
+					ASSERT(IsCompleteSafe(item->start, item->end));
 					ready.push_back(item);
+				}
 			}
 
 			if (!ready.empty()) {
@@ -4260,6 +4294,16 @@ void CPartFile::FlushBuffer(bool bForceICH, bool bNoAICH)
 				DeleteWrittenItem(pos2);
 			}
 		}
+
+#ifdef _DEBUG
+		uint64 uLastEnd = 0;
+		for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
+			const PartFileBufferedData* item = m_BufferedData_list.GetNext(pos);
+			ASSERT(item->start <= item->end);
+			ASSERT(item->start >= uLastEnd);
+			uLastEnd = item->end + 1;
+		}
+#endif
 
 		// Partfile should never be too large
 		if (m_hpartfile.GetLength() > (uint64)m_nFileSize) {
@@ -4475,8 +4519,11 @@ void CPartFile::QueueFlushToWriteThread()
 			ready.reserve(m_BufferedData_list.GetCount());
 			for (POSITION pos = m_BufferedData_list.GetHeadPosition(); pos != NULL;) {
 				PartFileBufferedData *item = m_BufferedData_list.GetNext(pos);
-				if (item->flushed == PB_READY)
+				if (item->flushed == PB_READY) {
+					ASSERT(item->start <= item->end && item->end < (uint64)m_nFileSize);
+					ASSERT(IsCompleteSafe(item->start, item->end));
 					ready.push_back(item);
+				}
 			}
 
 			if (!ready.empty()) {

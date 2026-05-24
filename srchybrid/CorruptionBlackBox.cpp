@@ -72,7 +72,7 @@ void CCorruptionBlackBox::Free()
 
 void CCorruptionBlackBox::ReceivedData(uint64 nStartPos, uint64 nEndPos, const CUpDownClient *pSender)
 {
-	if (nEndPos - nStartPos >= PARTSIZE || nStartPos > nEndPos) {
+	if (nStartPos > nEndPos || nEndPos - nStartPos >= PARTSIZE) {
 		ASSERT(0);
 		return;
 	}
@@ -84,6 +84,9 @@ void CCorruptionBlackBox::ReceivedData(uint64 nStartPos, uint64 nEndPos, const C
 
 	// convert pos to relative block pos
 	INT_PTR nPart = (INT_PTR)(nStartPos / PARTSIZE);
+	ASSERT(nPart >= 0 && nPart < m_aaRecords.GetSize());
+	if (nPart < 0 || nPart >= m_aaRecords.GetSize())
+		return;
 	const uint64 nStart = nPart * PARTSIZE;
 	uint64 nRelStartPos = nStartPos - nStart;
 	uint64 nRelEndPos = nEndPos - nStart;
@@ -157,12 +160,15 @@ void CCorruptionBlackBox::ReceivedData(uint64 nStartPos, uint64 nEndPos, const C
 
 void CCorruptionBlackBox::VerifiedData(uint64 nStartPos, uint64 nEndPos)
 {
-	if (nEndPos >= nStartPos + PARTSIZE) {
+	if (nStartPos > nEndPos || nEndPos - nStartPos >= PARTSIZE) {
 		ASSERT(0);
 		return;
 	}
 	// convert pos to relative block pos
 	INT_PTR nPart = (INT_PTR)(nStartPos / PARTSIZE);
+	ASSERT(nPart >= 0 && nPart < m_aaRecords.GetSize());
+	if (nPart < 0 || nPart >= m_aaRecords.GetSize())
+		return;
 	uint64 nRelStartPos = nStartPos - nPart * PARTSIZE;
 	uint64 nRelEndPos = nEndPos - nPart * PARTSIZE;
 	if (nRelEndPos >= PARTSIZE) {
