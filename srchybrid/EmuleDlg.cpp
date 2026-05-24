@@ -644,9 +644,6 @@ BOOL CemuleDlg::OnInitDialog()
 		theApp.searchlist->LoadSearches();
 	}
 
-	theApp.SetSplashStatus(IDS_SPLASH_READY);
-	theApp.DestroySplash();
-
 	return TRUE;
 }
 
@@ -691,6 +688,7 @@ void CALLBACK CemuleDlg::StartupTimer(HWND /*hwnd*/, UINT /*uiMsg*/, UINT_PTR /*
 		case 1:
 			break;
 		case 2:
+			theApp.SetSplashStatus(IDS_SPLASH_LOAD_SERVERS);
 			++theApp.emuledlg->status;
 			try {
 				theApp.serverlist->Init();
@@ -703,6 +701,7 @@ void CALLBACK CemuleDlg::StartupTimer(HWND /*hwnd*/, UINT /*uiMsg*/, UINT_PTR /*
 			break;
 		case 4:
 			{
+				theApp.SetSplashStatus(IDS_SPLASH_LOAD_DOWNLOADS);
 				++theApp.emuledlg->status;
 				bool bError = false;
 
@@ -755,6 +754,8 @@ void CALLBACK CemuleDlg::StartupTimer(HWND /*hwnd*/, UINT /*uiMsg*/, UINT_PTR /*
 			++theApp.emuledlg->status;
 			break;
 		default:
+			theApp.SetSplashStatus(IDS_SPLASH_READY);
+			theApp.DestroySplash();
 			theApp.emuledlg->StopTimer();
 			// Synchronous startup (server list, downloadqueue Init, socket
 			// listen, saved-search load) is done. Now kick off the part-file
