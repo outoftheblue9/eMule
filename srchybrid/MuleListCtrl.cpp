@@ -913,7 +913,13 @@ BOOL CMuleListCtrl::OnWndMsg(UINT message, WPARAM wParam, LPARAM lParam, LRESULT
 				else
 					m_Params.InsertAfter(m_Params.FindIndex(lResult - 1), pItem->lParam);
 			}
-			return (BOOL)(*pResult = lResult);
+			// This path fully handled the insert (DefWindowProc above + m_Params update),
+			// so report handled. Returning (BOOL)lResult would yield FALSE when lResult==0
+			// (insert at the top), making MFC call DefWindowProc again -> a duplicate row
+			// in the control that m_Params doesn't track. MoveItemBlock inserts at index 0
+			// whenever an item sorts to the top, so this fired constantly.
+			*pResult = lResult;
+			return TRUE;
 		}
 		//try to fix position of inserted items
 		{
