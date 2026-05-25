@@ -216,7 +216,13 @@ void CPartFileWriteThread::WriteBuffers()
 							pFile ? (LPCTSTR)pFile->GetFileName() : _T("?"),
 							uStart, uEnd - uStart + 1, dwError);
 					}
-					RemFile(pFile);
+					if (dwError == ERROR_INVALID_HANDLE)
+						// The kernel handle is already gone (shutdown / volume detach /
+						// external close). Calling CloseHandle on it would raise
+						// STATUS_INVALID_HANDLE under a debugger; just resync the cache.
+						pFile->m_hWrite = INVALID_HANDLE_VALUE;
+					else
+						RemFile(pFile);
 					// re-add deferred items below before returning
 					while (!deferred.IsEmpty())
 						m_listToWrite.AddHead(deferred.RemoveTail());

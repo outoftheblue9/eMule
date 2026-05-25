@@ -293,21 +293,26 @@ void CPartFile::Init()
 CPartFile::~CPartFile()
 {
 	// Barry - Ensure all buffered data is written
-	if ((HANDLE)m_hpartfile != INVALID_HANDLE_VALUE) {
+	if ((HANDLE)m_hpartfile != INVALID_HANDLE_VALUE)
 		// commit file and directory entry
 		FlushBuffer(false, true);
-		// Drain pending overlapped IO on CPartFileWriteThread before freeing the
-		// m_BufferedData_list items below (MergedWrite::sources point into that list)
-		// and before this CPartFile is destructed (WriteCompletionRoutine derefs
-		// pOvWrite->pFile). The write thread is still alive here — shutdown order in
-		// CemuleDlg::OnClose calls EndThread() after delete downloadqueue.
-		m_eventNoPendingWrites.Lock();
-		CPartFileWriteThread::RemFile(this);
+	// Drain pending overlapped IO on CPartFileWriteThread before freeing the
+	// m_BufferedData_list items below (MergedWrite::sources point into that list)
+	// and before this CPartFile is destructed (WriteCompletionRoutine derefs
+	// pOvWrite->pFile). This must run regardless of m_hpartfile state: pending
+	// overlapped writes are tracked by m_iWrites against m_hWrite, independent of
+	// m_hpartfile. Skipping the drain when m_hpartfile == INVALID_HANDLE_VALUE
+	// frees this object while completions are still queued in the IOCP, so the
+	// write thread later derefs a dangling pFile. The write thread is still alive
+	// here — shutdown order in CemuleDlg::OnClose calls EndThread() after delete
+	// downloadqueue.
+	m_eventNoPendingWrites.Lock();
+	CPartFileWriteThread::RemFile(this);
+	if ((HANDLE)m_hpartfile != INVALID_HANDLE_VALUE) {
 		m_hpartfile.Close();
 		// Update met file (with the current directory entry)
 		SavePartFile();
-	} else
-		CPartFileWriteThread::RemFile(this);
+	}
 
 	while (!m_BufferedData_list.IsEmpty()) {
 		const PartFileBufferedData *item = m_BufferedData_list.RemoveHead();
