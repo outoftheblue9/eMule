@@ -458,8 +458,12 @@ CString CDownloadListCtrl::GetSourceItemDisplayText(const CtrlItem_Struct *pCtrl
 	const CUpDownClient *pClient = static_cast<CUpDownClient*>(pCtrlItem->value);
 	switch (iSubItem) {
 	case 0: //icon, name, status
-		if (pClient->GetUserName())
-			return CString(pClient->GetUserName());
+		if (pClient->GetUserName()) {
+			sText = pClient->GetUserName();
+			if (pClient->GetViewSharedFilesSupport())
+				sText += _T(" [S]");
+			return sText;
+		}
 		sText.Format(_T("(%s)"), (LPCTSTR)GetResString(IDS_UNKNOWN));
 		break;
 	case 1: //source from
