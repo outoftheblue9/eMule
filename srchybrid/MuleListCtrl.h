@@ -201,8 +201,9 @@ protected:
 	afx_msg void OnLvnGetInfoTip(LPNMHDR pNMHDR, LRESULT *pResult);
 	afx_msg void OnLvnEndScrollList(LPNMHDR pNMHDR, LRESULT *pResult);
 
-	int UpdateLocation(int iItem);
-	int MoveItem(int iOldIndex, int iNewIndex);
+	virtual int UpdateLocation(int iItem);
+	virtual int MoveItem(int iOldIndex, int iNewIndex);
+	int MoveItemBlock(int iOldIndex, int iNewIndex, int B);
 	void SetColors();
 	void DrawFocusRect(CDC *pDC, LPCRECT rcItem, BOOL bItemFocused, BOOL bCtrlFocused, BOOL bItemSelected);
 	void InitItemMemDC(CMemoryDC &dc, LPDRAWITEMSTRUCT lpDrawItemStruct, BOOL &bCtrlFocused);

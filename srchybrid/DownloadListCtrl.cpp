@@ -2099,6 +2099,7 @@ CString CDownloadListCtrl::GetFileItemDisplayText(const CPartFile *lpPartFile, i
 	return sText;
 }
 
+
 void CDownloadListCtrl::ShowFilesCount()
 {
 	theApp.emuledlg->transferwnd->UpdateFilesCount(GetFilesCountInCurCat());
@@ -2633,4 +2634,192 @@ bool CDownloadListCtrl::ReportAvailableCommands(CList<int> &liAvailableCommands)
 	if (GetItemCount() > 0)
 		liAvailableCommands.AddTail(MP_FIND);
 	return true;
+}
+
+int CDownloadListCtrl::MoveItem(int iOldIndex, int iNewIndex)
+{
+	const CtrlItem_Struct *parentItem = reinterpret_cast<const CtrlItem_Struct*>(GetItemData(iOldIndex));
+	if (parentItem == NULL)
+		return -1;
+
+	int nChildCount = 0;
+	if (parentItem->type == FILE_TYPE) {
+		while (iOldIndex + 1 + nChildCount < GetItemCount()) {
+			const CtrlItem_Struct *childItem = reinterpret_cast<const CtrlItem_Struct*>(GetItemData(iOldIndex + 1 + nChildCount));
+			if (childItem != NULL && childItem->type != FILE_TYPE && childItem->parent == parentItem) {
+				nChildCount++;
+			} else {
+				break;
+			}
+		}
+	}
+
+	return MoveItemBlock(iOldIndex, iNewIndex, 1 + nChildCount);
+}
+
+int CDownloadListCtrl::UpdateLocation(int iItem)
+{
+	int iItemCount = GetItemCount();
+	if (iItem >= iItemCount || iItem < 0)
+		return iItem;
+
+	CtrlItem_Struct* pCtrlItem = (CtrlItem_Struct*)GetItemData(iItem);
+	if (pCtrlItem == NULL)
+		return iItem;
+
+	if (pCtrlItem->type == FILE_TYPE) {
+		int nChildCount = 0;
+		for (int i = iItem + 1; i < iItemCount; ++i) {
+			CtrlItem_Struct* pNextItem = (CtrlItem_Struct*)GetItemData(i);
+			if (pNextItem && pNextItem->type != FILE_TYPE && pNextItem->parent == pCtrlItem) {
+				nChildCount++;
+			} else {
+				break;
+			}
+		}
+
+		int B = 1 + nChildCount;
+
+		if (iItem > 0) {
+			int iPrevParent = -1;
+			CtrlItem_Struct* pPrevParent = NULL;
+			for (int i = iItem - 1; i >= 0; --i) {
+				CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+				if (pTest && pTest->type == FILE_TYPE) {
+					iPrevParent = i;
+					pPrevParent = pTest;
+					break;
+				}
+			}
+
+			if (pPrevParent != NULL) {
+				int iResult = m_SortProc((DWORD_PTR)pCtrlItem, (DWORD_PTR)pPrevParent, m_dwParamSort);
+				if (iResult < 0) {
+					int iTargetIndex = iPrevParent;
+					for (int i = iPrevParent - 1; i >= 0; --i) {
+						CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+						if (pTest && pTest->type == FILE_TYPE) {
+							int iRes = m_SortProc((DWORD_PTR)pCtrlItem, (DWORD_PTR)pTest, m_dwParamSort);
+							if (iRes >= 0) {
+								break;
+							}
+							iTargetIndex = i;
+						}
+					}
+					MoveItemBlock(iItem, iTargetIndex, B);
+					return iTargetIndex;
+				}
+			}
+		}
+
+		if (iItem + B < iItemCount) {
+			int iNextParent = -1;
+			CtrlItem_Struct* pNextParent = NULL;
+			for (int i = iItem + B; i < iItemCount; ++i) {
+				CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+				if (pTest && pTest->type == FILE_TYPE) {
+					iNextParent = i;
+					pNextParent = pTest;
+					break;
+				}
+			}
+
+			if (pNextParent != NULL) {
+				int iResult = m_SortProc((DWORD_PTR)pCtrlItem, (DWORD_PTR)pNextParent, m_dwParamSort);
+				if (iResult > 0) {
+					int iLastCheckedParent = iNextParent;
+					for (int i = iNextParent + 1; i < iItemCount; ++i) {
+						CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+						if (pTest && pTest->type == FILE_TYPE) {
+							int iRes = m_SortProc((DWORD_PTR)pCtrlItem, (DWORD_PTR)pTest, m_dwParamSort);
+							if (iRes <= 0) {
+								break;
+							}
+							iLastCheckedParent = i;
+						}
+					}
+
+					int nTargetChildren = 0;
+					for (int i = iLastCheckedParent + 1; i < iItemCount; ++i) {
+						CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+						if (pTest && pTest->type != FILE_TYPE && pTest->parent == (CtrlItem_Struct*)GetItemData(iLastCheckedParent)) {
+							nTargetChildren++;
+						} else {
+							break;
+						}
+					}
+
+					int iInsertIndex = iLastCheckedParent + 1 + nTargetChildren;
+					MoveItemBlock(iItem, iInsertIndex, B);
+					return iInsertIndex - B;
+				}
+			}
+		}
+
+		return iItem;
+
+	} else {
+		CtrlItem_Struct* pParent = pCtrlItem->parent;
+		if (pParent == NULL)
+			return CMuleListCtrl::UpdateLocation(iItem);
+
+		int iParentIndex = -1;
+		for (int i = 0; i < iItemCount; ++i) {
+			if ((CtrlItem_Struct*)GetItemData(i) == pParent) {
+				iParentIndex = i;
+				break;
+			}
+		}
+		if (iParentIndex == -1)
+			return CMuleListCtrl::UpdateLocation(iItem);
+
+		int iFirstChild = iParentIndex + 1;
+		int nChildCount = 0;
+		for (int i = iFirstChild; i < iItemCount; ++i) {
+			CtrlItem_Struct* pTest = (CtrlItem_Struct*)GetItemData(i);
+			if (pTest && pTest->type != FILE_TYPE && pTest->parent == pParent) {
+				nChildCount++;
+			} else {
+				break;
+			}
+		}
+
+		int iLastChild = iFirstChild + nChildCount - 1;
+
+		if (iItem > iFirstChild) {
+			int iPrevChild = iItem - 1;
+			int iResult = m_SortProc((DWORD_PTR)pCtrlItem, GetItemData(iPrevChild), m_dwParamSort);
+			if (iResult < 0) {
+				int iTargetIndex = iPrevChild;
+				for (int i = iPrevChild - 1; i >= iFirstChild; --i) {
+					int iRes = m_SortProc((DWORD_PTR)pCtrlItem, GetItemData(i), m_dwParamSort);
+					if (iRes >= 0) {
+						break;
+					}
+					iTargetIndex = i;
+				}
+				MoveItemBlock(iItem, iTargetIndex, 1);
+				return iTargetIndex;
+			}
+		}
+
+		if (iItem < iLastChild) {
+			int iNextChild = iItem + 1;
+			int iResult = m_SortProc((DWORD_PTR)pCtrlItem, GetItemData(iNextChild), m_dwParamSort);
+			if (iResult > 0) {
+				int iTargetIndex = iNextChild;
+				for (int i = iNextChild + 1; i <= iLastChild; ++i) {
+					int iRes = m_SortProc((DWORD_PTR)pCtrlItem, GetItemData(i), m_dwParamSort);
+					if (iRes <= 0) {
+						break;
+					}
+					iTargetIndex = i;
+				}
+				MoveItemBlock(iItem, iTargetIndex + 1, 1);
+				return iTargetIndex;
+			}
+		}
+
+		return iItem;
+	}
 }

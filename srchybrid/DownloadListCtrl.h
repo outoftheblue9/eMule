@@ -154,6 +154,8 @@ protected:
 
 	virtual BOOL OnCommand(WPARAM wParam, LPARAM);
 	virtual void DrawItem(LPDRAWITEMSTRUCT lpDrawItemStruct);
+	virtual int MoveItem(int iOldIndex, int iNewIndex) override;
+	virtual int UpdateLocation(int iItem) override;
 
 	DECLARE_MESSAGE_MAP()
 	afx_msg void OnContextMenu(CWnd*, CPoint point);

@@ -557,73 +557,126 @@ void CMuleListCtrl::SetSortArrow(int iColumn, ArrowType atType)
 // move item in list, returns index of new item
 int CMuleListCtrl::MoveItem(int iOldIndex, int iNewIndex)
 {
-	if (iNewIndex > iOldIndex)
-		--iNewIndex;
+	return MoveItemBlock(iOldIndex, iNewIndex, 1);
+}
 
-	// copy item
-	LVITEM lvi;
-	TCHAR szText[256];
-	lvi.mask = LVIF_TEXT | LVIF_STATE | LVIF_PARAM | LVIF_INDENT | LVIF_IMAGE | LVIF_NORECOMPUTE;
-	lvi.stateMask = UINT_MAX;
-	lvi.iItem = iOldIndex;
-	lvi.iSubItem = 0;
-	lvi.pszText = szText;
-	lvi.cchTextMax = _countof(szText);
-	lvi.iIndent = 0;
-	if (!GetItem(&lvi))
+int CMuleListCtrl::MoveItemBlock(int iOldIndex, int iNewIndex, int B)
+{
+	if (B <= 0)
 		return -1;
 
-	// copy strings of sub items
-	CSimpleArray<void*> aSubItems;
-	DWORD Style = GetStyle();
-	if ((Style & LVS_OWNERDATA) == 0) {
-		TCHAR szText1[256];
-		LVITEM lvi1;
-		lvi1.mask = LVIF_TEXT | LVIF_NORECOMPUTE;
-		lvi1.iItem = iOldIndex;
-		lvi1.cchTextMax = _countof(szText1);
-		for (int i = 1; i < m_iColumnsTracked; ++i) {
-			void *pstrSubItem;
-			lvi1.iSubItem = i;
-			lvi1.pszText = szText1;
-			if (GetItem(&lvi1))
-				if (lvi1.pszText == LPSTR_TEXTCALLBACK)
-					pstrSubItem = LPSTR_TEXTCALLBACK;
-				else
-					pstrSubItem = new CString(szText1);
-			else
-				pstrSubItem = NULL;
-			aSubItems.Add(pstrSubItem);
+	int iInsertIndex = iNewIndex;
+	if (iInsertIndex > iOldIndex) {
+		if (iInsertIndex - B < iOldIndex) {
+			// Source and destination overlap, or destination is inside the source block. No move needed.
+			return iOldIndex;
 		}
+		iInsertIndex -= B;
+	} else if (iInsertIndex == iOldIndex) {
+		return iOldIndex;
+	}
+
+	struct BlockItem {
+		LVITEM lvi;
+		TCHAR szText[256];
+		CSimpleArray<void*> aSubItems;
+	};
+
+	CSimpleArray<BlockItem*> aBlock;
+	DWORD Style = GetStyle();
+
+	EUpdateMode ePrevMode = SetUpdateMode(none);
+
+	for (int b = 0; b < B; ++b) {
+		int idx = iOldIndex + b;
+		BlockItem* pItem = new BlockItem;
+		pItem->lvi.mask = LVIF_TEXT | LVIF_STATE | LVIF_PARAM | LVIF_INDENT | LVIF_IMAGE | LVIF_NORECOMPUTE;
+		pItem->lvi.stateMask = UINT_MAX;
+		pItem->lvi.iItem = idx;
+		pItem->lvi.iSubItem = 0;
+		pItem->lvi.pszText = pItem->szText;
+		pItem->lvi.cchTextMax = _countof(pItem->szText);
+		pItem->lvi.iIndent = 0;
+
+		if (!GetItem(&pItem->lvi)) {
+			// Cleanup
+			for (int j = 0; j < aBlock.GetSize(); ++j) {
+				BlockItem* pOld = aBlock[j];
+				for (int k = 0; k < pOld->aSubItems.GetSize(); ++k) {
+					void* pstrSubItem = pOld->aSubItems[k];
+					if (pstrSubItem != NULL && pstrSubItem != LPSTR_TEXTCALLBACK) {
+						delete (CString*)pstrSubItem;
+					}
+				}
+				delete pOld;
+			}
+			delete pItem;
+			SetUpdateMode(ePrevMode);
+			return -1;
+		}
+
+		if ((Style & LVS_OWNERDATA) == 0) {
+			TCHAR szText1[256];
+			LVITEM lvi1;
+			lvi1.mask = LVIF_TEXT | LVIF_NORECOMPUTE;
+			lvi1.iItem = idx;
+			lvi1.cchTextMax = _countof(szText1);
+			for (int i = 1; i < m_iColumnsTracked; ++i) {
+				void *pstrSubItem;
+				lvi1.iSubItem = i;
+				lvi1.pszText = szText1;
+				if (GetItem(&lvi1)) {
+					if (lvi1.pszText == LPSTR_TEXTCALLBACK)
+						pstrSubItem = LPSTR_TEXTCALLBACK;
+					else
+						pstrSubItem = new CString(szText1);
+				} else {
+					pstrSubItem = NULL;
+				}
+				pItem->aSubItems.Add(pstrSubItem);
+			}
+		}
+		aBlock.Add(pItem);
 	}
 
 	// do the move
 	SetRedraw(false);
-	DeleteItem(iOldIndex);
-	lvi.iItem = iNewIndex;
-	iNewIndex = InsertItem(&lvi);
 
-	// restore strings of sub items
-	if ((Style & LVS_OWNERDATA) == 0) {
-		for (int i = 1; i < m_iColumnsTracked; ++i) {
-			LVITEM lvi1;
-			lvi1.iSubItem = i;
-			void *pstrSubItem = aSubItems[i - 1];
-			if (pstrSubItem != NULL) {
-				if (pstrSubItem == LPSTR_TEXTCALLBACK)
-					lvi1.pszText = LPSTR_TEXTCALLBACK;
-				else
-					lvi1.pszText = const_cast<LPTSTR>((LPCTSTR)(*(CString*)pstrSubItem));
-				DefWindowProc(LVM_SETITEMTEXT, iNewIndex, (LPARAM)&lvi1);
-				if (pstrSubItem != LPSTR_TEXTCALLBACK)
-					delete (CString*)pstrSubItem;
+	// Delete old items
+	for (int b = 0; b < B; ++b) {
+		DeleteItem(iOldIndex);
+	}
+
+	// Insert new items
+	for (int b = 0; b < B; ++b) {
+		BlockItem* pItem = aBlock[b];
+		pItem->lvi.iItem = iInsertIndex + b;
+		int idxResult = InsertItem(&pItem->lvi);
+
+		// restore strings of sub items
+		if ((Style & LVS_OWNERDATA) == 0) {
+			for (int i = 1; i < m_iColumnsTracked; ++i) {
+				LVITEM lvi1;
+				lvi1.iSubItem = i;
+				void *pstrSubItem = pItem->aSubItems[i - 1];
+				if (pstrSubItem != NULL) {
+					if (pstrSubItem == LPSTR_TEXTCALLBACK)
+						lvi1.pszText = LPSTR_TEXTCALLBACK;
+					else
+						lvi1.pszText = const_cast<LPTSTR>((LPCTSTR)(*(CString*)pstrSubItem));
+					DefWindowProc(LVM_SETITEMTEXT, idxResult, (LPARAM)&lvi1);
+					if (pstrSubItem != LPSTR_TEXTCALLBACK)
+						delete (CString*)pstrSubItem;
+				}
 			}
 		}
+		delete pItem;
 	}
 
 	SetRedraw(true);
+	SetUpdateMode(ePrevMode);
 
-	return iNewIndex;
+	return iInsertIndex;
 }
 
 int CMuleListCtrl::UpdateLocation(int iItem)
